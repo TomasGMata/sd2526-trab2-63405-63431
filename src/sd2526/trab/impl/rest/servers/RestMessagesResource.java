@@ -10,10 +10,21 @@ import sd2526.trab.impl.api.java.AdminMessages;
 import sd2526.trab.impl.api.rest.RestAdminMessages;
 import sd2526.trab.impl.java.clients.Clients;
 import sd2526.trab.impl.java.servers.JavaMessages;
+import sd2526.trab.impl.utils.ServerConfig;
 
 @Singleton
 public class RestMessagesResource extends RestResource implements RestMessages, RestAdminMessages {
 	
+	@Context
+	private jakarta.ws.rs.core.HttpHeaders httpHeaders;
+
+	private void validateSecret() {
+		String secret = httpHeaders.getHeaderString(ServerConfig.SECRET_HEADER);
+		if (!ServerConfig.isValidSecret(secret))
+			throw new jakarta.ws.rs.WebApplicationException(
+				jakarta.ws.rs.core.Response.Status.FORBIDDEN);
+	}
+
 	static boolean isGateway = false;
 	
 	Messages impl;	

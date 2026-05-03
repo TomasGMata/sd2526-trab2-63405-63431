@@ -7,6 +7,7 @@ import sd2526.trab.api.java.Result;
 import sd2526.trab.api.rest.RestMessages;
 import sd2526.trab.impl.api.java.AdminMessages;
 import sd2526.trab.impl.api.rest.RestAdminMessages;
+import sd2526.trab.impl.utils.ServerConfig;
 
 public class RestAdminMessagesClient extends RestClient implements AdminMessages {
 
@@ -50,6 +51,33 @@ public class RestAdminMessagesClient extends RestClient implements AdminMessages
 				.path(RestAdminMessages.INBOX)
 				.path( name )
 				.request()
+				.delete());
+	}
+
+	private Result<Void> doRemotePostMessage(Message msg) {
+    return super.toJavaResult(target
+            .path(RestAdminMessages.ADMIN)
+            .request()
+            .header(ServerConfig.SECRET_HEADER, ServerConfig.getSecret())
+            .post(Entity.entity(msg, MediaType.APPLICATION_JSON)));
+	}
+
+	private Result<Void> doRemoteDeleteMessage(String mid) {
+		return super.toJavaResult(target
+				.path(RestAdminMessages.ADMIN)
+				.path(mid)
+				.request()
+				.header(ServerConfig.SECRET_HEADER, ServerConfig.getSecret())
+				.delete());
+	}
+
+	private Result<Void> doRemoteDeleteUserInbox(String name) {
+		return super.toJavaResult(target
+				.path(RestAdminMessages.ADMIN)
+				.path(RestAdminMessages.INBOX)
+				.path(name)
+				.request()
+				.header(ServerConfig.SECRET_HEADER, ServerConfig.getSecret())
 				.delete());
 	}
 }

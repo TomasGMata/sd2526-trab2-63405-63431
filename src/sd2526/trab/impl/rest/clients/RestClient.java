@@ -21,6 +21,7 @@ import jakarta.ws.rs.core.Response.Status;
 import sd2526.trab.api.java.Result;
 import sd2526.trab.api.java.Result.ErrorCode;
 import sd2526.trab.impl.utils.Sleep;
+import sd2526.trab.impl.utils.TLS;
 
 public class RestClient {
 	static Logger Log = Logger.getLogger(RestClient.class.getName());
@@ -43,7 +44,12 @@ public class RestClient {
 
 		config.property(ClientProperties.READ_TIMEOUT, READ_TIMEOUT);
 		config.property(ClientProperties.CONNECT_TIMEOUT, CONNECT_TIMEOUT);
-		this.client = ClientBuilder.newClient(config);
+
+		this.client = ClientBuilder.newClient(config)
+				.register(TLS.clientContext());
+				.hostnameVerifier((hostname, session) -> true);
+				.build();
+		
 		this.target = client.target( serverURI ).path( servicePath );
 	}
 

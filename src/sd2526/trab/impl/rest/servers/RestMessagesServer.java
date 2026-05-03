@@ -21,6 +21,9 @@ public class RestMessagesServer extends AbstractRestServer {
 	}
 
 	public static void main(String[] args) {
+		if (args.length > 0)
+			ServerConfig.setSecret(args[0]);
+
 		new RestMessagesServer().start();
 	}
 }
