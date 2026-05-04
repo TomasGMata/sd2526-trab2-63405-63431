@@ -11,73 +11,49 @@ import sd2526.trab.impl.utils.ServerConfig;
 
 public class RestAdminMessagesClient extends RestClient implements AdminMessages {
 
-	public RestAdminMessagesClient(String serverURI) {
-		super(serverURI, RestMessages.PATH);
-	}
+    public RestAdminMessagesClient(String serverURI) {
+        super(serverURI, RestMessages.PATH);
+    }
 
-	@Override
-	public Result<Void> remotePostMessage(Message m) {
-		return super.reTry( () -> doRemotePostMessage(m) );
-	}
+    @Override
+    public Result<Void> remotePostMessage(Message m) {
+        return super.reTry(() -> doRemotePostMessage(m));
+    }
 
-	@Override
-	public Result<Void> remoteDeleteMessage(String mid) {
-		return super.reTry( () -> doRemoteDeleteMessage(mid) );
-	}
+    @Override
+    public Result<Void> remoteDeleteMessage(String mid) {
+        return super.reTry(() -> doRemoteDeleteMessage(mid));
+    }
 
-	@Override
-	public Result<Void> remoteDeleteUserInbox(String name) {
-		return super.reTry( () -> doRemoteDeleteUserInbox(name) );
-	}
-	
-	private Result<Void> doRemotePostMessage(Message msg) {
-		return super.toJavaResult( target
-				.path(RestAdminMessages.ADMIN)
-				.request()
-				.post( Entity.entity(msg, MediaType.APPLICATION_JSON )));
-	}
+    @Override
+    public Result<Void> remoteDeleteUserInbox(String name) {
+        return super.reTry(() -> doRemoteDeleteUserInbox(name));
+    }
 
-	private Result<Void> doRemoteDeleteMessage(String mid) {
-		return super.toJavaResult( target
-				.path(RestAdminMessages.ADMIN)
-				.path( mid )
-				.request()
-				.delete());
-	}
-	
-	private Result<Void> doRemoteDeleteUserInbox(String name) {
-		return super.toJavaResult( target
-				.path(RestAdminMessages.ADMIN)
-				.path(RestAdminMessages.INBOX)
-				.path( name )
-				.request()
-				.delete());
-	}
+    private Result<Void> doRemotePostMessage(Message msg) {
+        return super.toJavaResult(target
+                .path(RestAdminMessages.ADMIN)
+                .request()
+                .header(ServerConfig.SECRET_HEADER, ServerConfig.getSecret())
+                .post(Entity.entity(msg, MediaType.APPLICATION_JSON)));
+    }
 
-	private Result<Void> doRemotePostMessage(Message msg) {
-    return super.toJavaResult(target
-            .path(RestAdminMessages.ADMIN)
-            .request()
-            .header(ServerConfig.SECRET_HEADER, ServerConfig.getSecret())
-            .post(Entity.entity(msg, MediaType.APPLICATION_JSON)));
-	}
+    private Result<Void> doRemoteDeleteMessage(String mid) {
+        return super.toJavaResult(target
+                .path(RestAdminMessages.ADMIN)
+                .path(mid)
+                .request()
+                .header(ServerConfig.SECRET_HEADER, ServerConfig.getSecret())
+                .delete());
+    }
 
-	private Result<Void> doRemoteDeleteMessage(String mid) {
-		return super.toJavaResult(target
-				.path(RestAdminMessages.ADMIN)
-				.path(mid)
-				.request()
-				.header(ServerConfig.SECRET_HEADER, ServerConfig.getSecret())
-				.delete());
-	}
-
-	private Result<Void> doRemoteDeleteUserInbox(String name) {
-		return super.toJavaResult(target
-				.path(RestAdminMessages.ADMIN)
-				.path(RestAdminMessages.INBOX)
-				.path(name)
-				.request()
-				.header(ServerConfig.SECRET_HEADER, ServerConfig.getSecret())
-				.delete());
-	}
+    private Result<Void> doRemoteDeleteUserInbox(String name) {
+        return super.toJavaResult(target
+                .path(RestAdminMessages.ADMIN)
+                .path(RestAdminMessages.INBOX)
+                .path(name)
+                .request()
+                .header(ServerConfig.SECRET_HEADER, ServerConfig.getSecret())
+                .delete());
+    }
 }

@@ -1,34 +1,28 @@
 package sd2526.trab.impl.utils;
 
-import javax.net.ssl.*;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.security.KeyStore;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManagerFactory;
+
 public class TLS {
 
-    private static final String KEYSTORE_PATH   = "/tls/server.ks";
-    private static final String TRUSTSTORE_PATH = "/tls/client.ts";
-    private static final String PASSWORD        = "sdtp1-2526";
+    private static String TRUSTSTORE_PATH = "/home/sd/tls/truststore.ks";
+    private static String TRUSTSTORE_PWD  = "changeit";
 
-    /** SSLContext para o servidor (tem a chave privada) */
     public static SSLContext serverContext() {
         try {
-            KeyStore ks = loadStore(KEYSTORE_PATH);
-            KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
-            kmf.init(ks, PASSWORD.toCharArray());
-
-            SSLContext ctx = SSLContext.getInstance("TLS");
-            ctx.init(kmf.getKeyManagers(), null, null);
-            return ctx;
+            return SSLContext.getDefault();
         } catch (Exception e) {
             throw new RuntimeException("Failed to create server SSLContext", e);
         }
     }
 
-    /** SSLContext para o cliente (confia no certificado do servidor) */
     public static SSLContext clientContext() {
         try {
-            KeyStore ts = loadStore(TRUSTSTORE_PATH);
+            KeyStore ts = loadStore(TRUSTSTORE_PATH, TRUSTSTORE_PWD, "JKS");
             TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
             tmf.init(ts);
 
@@ -40,11 +34,10 @@ public class TLS {
         }
     }
 
-    private static KeyStore loadStore(String path) throws Exception {
-        KeyStore ks = KeyStore.getInstance("JKS");
-        try (InputStream is = TLS.class.getResourceAsStream(path)) {
-            if (is == null) throw new RuntimeException("TLS store not found: " + path);
-            ks.load(is, PASSWORD.toCharArray());
+    private static KeyStore loadStore(String path, String pwd, String type) throws Exception {
+        KeyStore ks = KeyStore.getInstance(type);
+        try (InputStream is = new FileInputStream(path)) {
+            ks.load(is, pwd.toCharArray());
         }
         return ks;
     }

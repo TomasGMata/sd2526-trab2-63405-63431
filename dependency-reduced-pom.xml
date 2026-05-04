@@ -2,7 +2,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>sd2526</groupId>
-  <artifactId>sd2526-tp1</artifactId>
+  <artifactId>sd2526-tp2</artifactId>
   <version>1</version>
   <build>
     <sourceDirectory>src</sourceDirectory>
@@ -26,6 +26,7 @@
               <goal>shade</goal>
             </goals>
             <configuration>
+              <shadedArtifactAttached>false</shadedArtifactAttached>
               <filters>
                 <filter>
                   <artifact>*:*</artifact>
@@ -35,6 +36,12 @@
                     <exclude>META-INF/*.RSA</exclude>
                     <exclude>META-INF/*.EC</exclude>
                   </excludes>
+                </filter>
+                <filter>
+                  <artifact>sd2526:sd2526-tp2</artifact>
+                  <includes>
+                    <include>**</include>
+                  </includes>
                 </filter>
               </filters>
               <transformers>
@@ -90,7 +97,7 @@
         <configuration>
           <images>
             <image>
-              <name>smduarte/${project.artifactId}-${authors}</name>
+              <name>${project.artifactId}-${authors}</name>
               <build>
                 <dockerFile>${project.basedir}/Dockerfile</dockerFile>
               </build>
@@ -102,6 +109,6 @@
   </build>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <authors>smd</authors>
+    <authors>63405-63431</authors>
   </properties>
 </project>
