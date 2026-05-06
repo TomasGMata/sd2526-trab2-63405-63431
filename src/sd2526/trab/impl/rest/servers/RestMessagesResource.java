@@ -8,6 +8,7 @@ import com.google.gson.JsonObject;
 import jakarta.inject.Singleton;
 import jakarta.ws.rs.core.Context;
 import sd2526.trab.api.Message;
+import static sd2526.trab.api.java.Result.*;
 import sd2526.trab.api.java.Messages;
 import sd2526.trab.api.rest.RestMessages;
 import sd2526.trab.impl.api.java.AdminMessages;
@@ -93,7 +94,11 @@ public class RestMessagesResource extends RestResource implements RestMessages, 
         obj.addProperty("name", name);
 
         long offset = publisher.publish(RestMessagesServer.KAFKA_TOPIC, obj.toString());
-        SyncPoint.getSyncPoint().waitForResult(offset);
+        String res = SyncPoint.getSyncPoint().waitForResult(offset);
+
+        if (!"OK".equals(res))
+            throw new jakarta.ws.rs.WebApplicationException(
+                jakarta.ws.rs.core.Response.Status.FORBIDDEN);
     }
 
     @Override

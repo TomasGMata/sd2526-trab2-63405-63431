@@ -59,8 +59,8 @@ public class RestMessagesServer extends AbstractRestServer {
                         String pwd = obj.get("pwd").getAsString();
                         String mid = obj.get("mid").getAsString();
                         String name = obj.get("name").getAsString();
-                        JavaMessages.getInstance().deleteMessage(name, mid, pwd);
-                        sp.setResult(record.offset(), null);
+                        var result = JavaMessages.getInstance().deleteMessage(name, mid, pwd);
+                        sp.setResult(record.offset(), result.isOK() ? null : result.error().name());
                     }
                 }
             });

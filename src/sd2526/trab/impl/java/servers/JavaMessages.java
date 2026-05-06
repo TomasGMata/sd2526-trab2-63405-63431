@@ -128,14 +128,29 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
 				});
 	}
 
+	private String extractUser(String sender) {
+    int start = sender.indexOf('<');
+    int end = sender.indexOf('>');
+    
+    if (start >= 0 && end > start) {
+        String email = sender.substring(start + 1, end);
+        return email.split("@")[0];
+    }
+    return null;
+}
+
 	@Override
 	public Result<Void> deleteMessage(String name, String mid, String pwd) {
 		Log.info( () -> "deleteMessage : name = %s, mid = %s, pwd = %s\n".formatted(name, mid, pwd));
 
 
 		return getUser(name, pwd )
-			.then( () -> getCachedMessage(mid))
-			.thenWith(msg -> name.equals( getName(msg.senderAddress())) ? ok(msg) : error(FORBIDDEN) )
+			.then( () -> {
+				var cached = messagesCache.getIfPresent(mid);
+				if (cached != null) return ok(cached);
+				return DB.getOne(mid, Message.class);
+			})
+			.thenWith(msg -> name.equals( extractUser(msg.senderAddress())) ? ok(msg) : error(FORBIDDEN) )
 			.thenWith((msg) -> doAsyncDelete(msg));
 	}
 	
