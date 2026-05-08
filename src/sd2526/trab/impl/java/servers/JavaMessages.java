@@ -128,17 +128,6 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
 				});
 	}
 
-	private String extractUser(String sender) {
-    int start = sender.indexOf('<');
-    int end = sender.indexOf('>');
-    
-    if (start >= 0 && end > start) {
-        String email = sender.substring(start + 1, end);
-        return email.split("@")[0];
-    }
-    return null;
-}
-
 	@Override
 	public Result<Void> deleteMessage(String name, String mid, String pwd) {
 		Log.info( () -> "deleteMessage : name = %s, mid = %s, pwd = %s\n".formatted(name, mid, pwd));
@@ -151,7 +140,7 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
 				Log.info("DB.getOne(" + mid + ") = " + (dbResult.isOK() ? dbResult.value().getSender() : dbResult.error()));
 				return dbResult;
 			})
-			.thenWith(msg -> name.equals( extractUser(msg.senderAddress())) ? ok(msg) : error(FORBIDDEN) )
+			.thenWith(msg -> name.equals(getName(msg.senderAddress())) ? ok(msg) : error(FORBIDDEN) )
 			.thenWith((msg) -> doAsyncDelete(msg));
 	}
 	
@@ -159,8 +148,12 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
 	protected Result<User> getUser( String user, String pwd) {
 		try {
 			var name = user.split("@", 2)[0];
-			return Clients.UsersClient.get().getUser( name, pwd);
+			Log.info("getUser called: name=" + name + " pwd=" + pwd);
+			var result = Clients.UsersClient.get().getUser(name, pwd);
+			Log.info("getUser result: " + result.error());
+			return result;
 		} catch (Exception x) {
+			Log.warning("getUser exception: " + x.getMessage());
 			x.printStackTrace();
 			return Result.error(INTERNAL_ERROR);
 		}
