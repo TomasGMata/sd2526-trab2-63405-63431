@@ -7,9 +7,11 @@ import java.util.logging.Logger;
 import sd2526.trab.api.java.Users;
 
 public class GrpcUsersServer extends AbstractGrpcServer {
+
     public static final int PORT = 13456;
 
-    private static Logger Log = Logger.getLogger(GrpcUsersServer.class.getName());
+    private static Logger Log =
+            Logger.getLogger(GrpcUsersServer.class.getName());
 
     public GrpcUsersServer() {
         super(Log, Users.SERVICE_NAME, PORT);
@@ -17,14 +19,27 @@ public class GrpcUsersServer extends AbstractGrpcServer {
 
     @Override
     protected List<GrpcController> controllers(String uri) {
-        return List.of(new GrpcUsersController(), new GrpcAdminUsersController());
+        return List.of(
+                new GrpcUsersController(),
+                new GrpcAdminUsersController());
     }
 
     public static void main(String[] args) {
+
         try {
-            if (args.length >= 2) System.setProperty("javax.net.ssl.keyStore", args[1]);
-            if (args.length >= 3) System.setProperty("javax.net.ssl.keyStorePassword", args[2]);
+
+            if (args.length >= 2)
+                System.setProperty(
+                        "javax.net.ssl.keyStore",
+                        args[1]);
+
+            if (args.length >= 3)
+                System.setProperty(
+                        "javax.net.ssl.keyStorePassword",
+                        args[2]);
+
             new GrpcUsersServer().start();
+
         } catch (IOException e) {
             e.printStackTrace();
         }

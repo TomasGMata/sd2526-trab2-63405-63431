@@ -143,12 +143,13 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
 	public Result<Void> deleteMessage(String name, String mid, String pwd) {
 		Log.info( () -> "deleteMessage : name = %s, mid = %s, pwd = %s\n".formatted(name, mid, pwd));
 
-
-		return getUser(name, pwd )
-			.then( () -> {
+		return getUser(name, pwd)
+			.then(() -> {
 				var cached = messagesCache.getIfPresent(mid);
 				if (cached != null) return ok(cached);
-				return DB.getOne(mid, Message.class);
+				var dbResult = DB.getOne(mid, Message.class);
+				Log.info("DB.getOne(" + mid + ") = " + (dbResult.isOK() ? dbResult.value().getSender() : dbResult.error()));
+				return dbResult;
 			})
 			.thenWith(msg -> name.equals( extractUser(msg.senderAddress())) ? ok(msg) : error(FORBIDDEN) )
 			.thenWith((msg) -> doAsyncDelete(msg));

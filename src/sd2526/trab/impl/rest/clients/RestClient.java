@@ -21,7 +21,6 @@ import jakarta.ws.rs.core.Response.Status;
 import sd2526.trab.api.java.Result;
 import sd2526.trab.api.java.Result.ErrorCode;
 import sd2526.trab.impl.utils.Sleep;
-import sd2526.trab.impl.utils.TLS;
 
 public class RestClient {
     static Logger Log = Logger.getLogger(RestClient.class.getName());
@@ -46,7 +45,6 @@ public class RestClient {
 
         this.client = ClientBuilder.newBuilder()
                 .withConfig(config)
-                .sslContext(TLS.clientContext())
                 .hostnameVerifier((hostname, session) -> true)
                 .build();
 

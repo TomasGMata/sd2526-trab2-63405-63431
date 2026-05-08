@@ -16,12 +16,15 @@ import sd2526.trab.impl.utils.ServerConfig;
 import sd2526.trab.impl.utils.SyncPoint;
 import sd2526.trab.impl.utils.kafka.KafkaSubscriber;
 import sd2526.trab.impl.utils.kafka.KafkaUtils;
+import sd2526.trab.impl.utils.TLS;
 
 public class RestMessagesServer extends AbstractRestServer {
     public static final int PORT = 4567;
 
     public static final String KAFKA_TOPIC = "messages-" +
         System.getenv().getOrDefault("DOMAIN", "default");
+
+    public static boolean kafkaAvailable = false;
 
     private static Logger Log = Logger.getLogger(RestMessagesServer.class.getName());
     private static final Gson gson = new Gson();
@@ -36,35 +39,51 @@ public class RestMessagesServer extends AbstractRestServer {
     }
 
     public static void main(String[] args) {
-        if (args.length > 0) ServerConfig.setSecret(args[0]);
-        if (args.length > 1) System.setProperty("javax.net.ssl.keyStore", args[1]);
-        if (args.length > 2) System.setProperty("javax.net.ssl.keyStorePassword", args[2]);
+        try {
+            if (args.length > 0) ServerConfig.setSecret(args[0]);
+            
+            var server = new RestMessagesServer();
+            if (args.length > 2)
+                server.setSSLContext(TLS.serverContextFromFile(args[1], args[2]));
+            else
+                throw new RuntimeException("Keystore args required: <secret> <keystore> <password>");
 
-        KafkaUtils.createTopic(KAFKA_TOPIC);
+            try {
+                KafkaUtils.createTopic(KAFKA_TOPIC);
 
-        KafkaSubscriber.createSubscriber("kafka:9092", List.of(KAFKA_TOPIC))
-            .start(record -> {
-                JsonObject obj = JsonParser.parseString(record.value()).getAsJsonObject();
-                String op = obj.get("op").getAsString();
-                SyncPoint sp = SyncPoint.getSyncPoint();
+                KafkaSubscriber.createSubscriber("kafka:9092", List.of(KAFKA_TOPIC))
+                    .start(record -> {
+                        JsonObject obj = JsonParser.parseString(record.value()).getAsJsonObject();
+                        String op = obj.get("op").getAsString();
+                        SyncPoint sp = SyncPoint.getSyncPoint();
 
-                switch (op) {
-                    case "postMessage" -> {
-                        String pwd = obj.get("pwd").getAsString();
-                        Message msg = gson.fromJson(obj.get("msg"), Message.class);
-                        var result = JavaMessages.getInstance().postMessage(pwd, msg);
-                        sp.setResult(record.offset(), result.isOK() ? result.value() : null);
-                    }
-                    case "deleteMessage" -> {
-                        String pwd = obj.get("pwd").getAsString();
-                        String mid = obj.get("mid").getAsString();
-                        String name = obj.get("name").getAsString();
-                        var result = JavaMessages.getInstance().deleteMessage(name, mid, pwd);
-                        sp.setResult(record.offset(), result.isOK() ? null : result.error().name());
-                    }
-                }
-            });
+                        switch (op) {
+                            case "postMessage" -> {
+                                String pwd = obj.get("pwd").getAsString();
+                                Message msg = gson.fromJson(obj.get("msg"), Message.class);
+                                var result = JavaMessages.getInstance().postMessage(pwd, msg);
+                                sp.setResult(record.offset(), result.isOK() ? result.value() : null);
+                            }
+                            case "deleteMessage" -> {
+                                String pwd = obj.get("pwd").getAsString();
+                                String mid = obj.get("mid").getAsString();
+                                String name = obj.get("name").getAsString();
+                                var result = JavaMessages.getInstance().deleteMessage(name, mid, pwd);
+                                sp.setResult(record.offset(), result.isOK() ? null : result.error().name());
+                            }
+                        }
+                });
+                kafkaAvailable = true;
+            
+            } catch (Throwable t) {
+                Log.warning("Kafka not available, running without it: " + t.getMessage());
+            }
 
-        new RestMessagesServer().start();
+            server.start();
+
+        } catch (Throwable t) {
+            t.printStackTrace();
+        }
+        
     }
 }

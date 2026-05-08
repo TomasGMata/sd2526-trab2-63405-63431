@@ -6,6 +6,7 @@ import java.security.KeyStore;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.KeyManagerFactory;
 
 public class TLS {
 
@@ -19,6 +20,22 @@ public class TLS {
             throw new RuntimeException("Failed to create server SSLContext", e);
         }
     }
+
+    public static SSLContext serverContextFromFile(String keystorePath, String password) {
+    try {
+        KeyStore ks = KeyStore.getInstance("JKS");
+        try (var is = new java.io.FileInputStream(keystorePath)) {
+            ks.load(is, password.toCharArray());
+        }
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+        kmf.init(ks, password.toCharArray());
+        SSLContext ctx = SSLContext.getInstance("TLS");
+        ctx.init(kmf.getKeyManagers(), null, null);
+        return ctx;
+    } catch (Exception e) {
+        throw new RuntimeException("Failed to create server SSLContext from " + keystorePath, e);
+    }
+}
 
     public static SSLContext clientContext() {
         try {

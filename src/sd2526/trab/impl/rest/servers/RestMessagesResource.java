@@ -32,8 +32,7 @@ public class RestMessagesResource extends RestResource implements RestMessages, 
                 jakarta.ws.rs.core.Response.Status.FORBIDDEN);
     }
 
-    private static final KafkaPublisher publisher =
-        KafkaPublisher.createPublisher("kafka:9092");
+    private static KafkaPublisher publisher;
     private static final Gson gson = new Gson();
 
     static boolean isGateway = false;
@@ -54,14 +53,16 @@ public class RestMessagesResource extends RestResource implements RestMessages, 
 
     @Override
     public String postMessage(String pwd, Message msg) {
-        if (isGateway) return super.resultOrThrow(impl().postMessage(pwd, msg));
+        if (isGateway || !RestMessagesServer.kafkaAvailable) {
+            return super.resultOrThrow(impl().postMessage(pwd, msg));
+        }
 
         JsonObject obj = new JsonObject();
         obj.addProperty("op", "postMessage");
         obj.addProperty("pwd", pwd);
         obj.add("msg", gson.toJsonTree(msg));
 
-        long offset = publisher.publish(RestMessagesServer.KAFKA_TOPIC, obj.toString());
+        long offset = getPublisher().publish(RestMessagesServer.KAFKA_TOPIC, obj.toString());
         return SyncPoint.getSyncPoint().waitForResult(offset);
     }
 
@@ -85,7 +86,9 @@ public class RestMessagesResource extends RestResource implements RestMessages, 
 
     @Override
     public void deleteMessage(String name, String mid, String pwd) {
-        if (isGateway) { super.resultOrThrow(impl().deleteMessage(name, mid, pwd)); return; }
+        if (isGateway || !RestMessagesServer.kafkaAvailable) { 
+            super.resultOrThrow(impl().deleteMessage(name, mid, pwd)); return; 
+        }
 
         JsonObject obj = new JsonObject();
         obj.addProperty("op", "deleteMessage");
@@ -93,7 +96,7 @@ public class RestMessagesResource extends RestResource implements RestMessages, 
         obj.addProperty("mid", mid);
         obj.addProperty("name", name);
 
-        long offset = publisher.publish(RestMessagesServer.KAFKA_TOPIC, obj.toString());
+        long offset = getPublisher().publish(RestMessagesServer.KAFKA_TOPIC, obj.toString());
         String res = SyncPoint.getSyncPoint().waitForResult(offset);
 
         if (!"OK".equals(res))
@@ -114,5 +117,11 @@ public class RestMessagesResource extends RestResource implements RestMessages, 
     @Override
     public void remoteDeleteUserInbox(String name) {
         super.resultOrThrow(((AdminMessages) impl()).remoteDeleteUserInbox(name));
+    }
+
+    private static KafkaPublisher getPublisher() {
+        if (publisher == null)
+            publisher = KafkaPublisher.createPublisher("kafka:9092");
+        return publisher;
     }
 }

@@ -1,48 +1,76 @@
 package sd2526.trab.impl.grpc.servers;
 
-
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.logging.Logger;
 
 import io.grpc.Server;
-import io.grpc.ServerBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import sd2526.trab.impl.discovery.Discovery;
 import sd2526.trab.impl.java.servers.AbstractServer;
 import sd2526.trab.impl.utils.IP;
 
-
 public abstract class AbstractGrpcServer extends AbstractServer {
-	private static final String SERVER_BASE_URI = "grpc://%s:%s%s";
 
-	private static final String GRPC_CTX = "/grpc";
+    private static final String SERVER_BASE_URI = "grpc://%s:%s%s";
 
-	protected final Server server;
+    private static final String GRPC_CTX = "/grpc";
 
-	protected AbstractGrpcServer(Logger log, String service, int port) {
-		super(log, service, String.format(SERVER_BASE_URI, IP.hostname(), port, GRPC_CTX));
-		
-		var builder = ServerBuilder.forPort(port);
-		for( var s : controllers( super.serverURI ) )
-			builder.addService( s );
-		
-		this.server = builder.build();
-	}
+    protected final Server server;
 
-	protected abstract List<GrpcController> controllers( String uri );
-	
-	protected void start() throws IOException {
-		
-		Discovery.getInstance().announce(serviceName(), super.serverURI);
-		
-		Log.info(String.format("%s gRPC Server ready @ %s\n", service, serverURI));
+    protected AbstractGrpcServer(Logger log, String service, int port) {
 
-		server.start();
-		Runtime.getRuntime().addShutdownHook(new Thread( () -> {
-			System.err.println("*** shutting down gRPC server since JVM is shutting down");
-			server.shutdownNow();
-			System.err.println("*** server shut down");
-		}));
-	}
-	
+        super(log, service,
+                String.format(SERVER_BASE_URI, IP.hostname(), port, GRPC_CTX));
+
+        var builder = NettyServerBuilder.forPort(port);
+
+        /*
+         * TLS support
+         */
+        var keystore = System.getProperty("javax.net.ssl.keyStore");
+
+        if (keystore != null) {
+
+            var cert = new File(keystore + ".crt");
+            var key = new File(keystore + ".pem");
+
+            if (cert.exists() && key.exists()) {
+
+                try {
+                    builder.useTransportSecurity(cert, key);
+
+                    Log.info("gRPC TLS enabled using: "
+                            + cert.getAbsolutePath());
+
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+
+        for (var s : controllers(super.serverURI))
+            builder.addService(s);
+
+        this.server = builder.build();
+    }
+
+    protected abstract List<GrpcController> controllers(String uri);
+
+    protected void start() throws IOException {
+
+        Discovery.getInstance().announce(serviceName(), super.serverURI);
+
+        server.start();
+
+        Log.info(String.format("%s gRPC Server ready @ %s\n",
+                service, serverURI));
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.err.println("*** shutting down gRPC server since JVM is shutting down");
+            server.shutdownNow();
+            System.err.println("*** server shut down");
+        }));
+    }
 }

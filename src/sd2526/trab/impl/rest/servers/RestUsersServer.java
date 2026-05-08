@@ -5,6 +5,11 @@ import java.util.logging.Logger;
 import org.glassfish.jersey.server.ResourceConfig;
 
 import sd2526.trab.api.java.Users;
+import sd2526.trab.impl.utils.TLS;
+import sd2526.trab.impl.utils.ServerConfig;
+import sd2526.trab.impl.utils.SyncPoint;
+import sd2526.trab.impl.utils.kafka.KafkaSubscriber;
+import sd2526.trab.impl.utils.kafka.KafkaUtils;
 
 public class RestUsersServer extends AbstractRestServer {
     public static final int PORT = 3456;
@@ -21,12 +26,17 @@ public class RestUsersServer extends AbstractRestServer {
     }
 
     public static void main(String[] args) {
-        if (args.length >= 2) {
-            System.setProperty("javax.net.ssl.keyStore", args[1]);
+
+        try {
+            var server = new RestUsersServer();
+            if (args.length > 2)
+                server.setSSLContext(TLS.serverContextFromFile(args[1], args[2]));
+            else
+                throw new RuntimeException("Keystore args required: <secret> <keystore> <password>");
+            server.start();
+        } catch (Throwable t) {
+            t.printStackTrace();
         }
-        if (args.length >= 3) {
-            System.setProperty("javax.net.ssl.keyStorePassword", args[2]);
-        }
-        new RestUsersServer().start();
     }
+
 }
