@@ -14,7 +14,6 @@ import sd2526.trab.impl.utils.IP;
 public abstract class AbstractGrpcServer extends AbstractServer {
 
     private static final String SERVER_BASE_URI = "grpc://%s:%s%s";
-
     private static final String GRPC_CTX = "/grpc";
 
     protected final Server server;
@@ -31,23 +30,30 @@ public abstract class AbstractGrpcServer extends AbstractServer {
          */
         var keystore = System.getProperty("javax.net.ssl.keyStore");
 
-        if (keystore != null) {
+		if (keystore == null) {
+			String hostname = IP.hostname();
+			keystore = "/home/sd/tls/" + hostname + "-server";
+			System.setProperty("javax.net.ssl.keyStore", keystore);
+			Log.info("keyStore not set, defaulting to: " + keystore);
+		}
 
-            var cert = new File(keystore + ".crt");
-            var key = new File(keystore + ".pem");
+		if (keystore.endsWith(".ks")) {
+			keystore = keystore.substring(0, keystore.length() - 3);
+		}
 
-            if (cert.exists() && key.exists()) {
+		var cert = new File(keystore + ".crt");
+		var key  = new File(keystore + ".pem");
 
-                try {
-                    builder.useTransportSecurity(cert, key);
-
-                    Log.info("gRPC TLS enabled using: "
-                            + cert.getAbsolutePath());
-
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
+        if (cert.exists() && key.exists()) {
+            try {
+                builder.useTransportSecurity(cert, key);
+                Log.info("gRPC TLS enabled using: " + cert.getAbsolutePath());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
             }
+        } else {
+            Log.warning("TLS files not found: " + cert.getAbsolutePath()
+                    + " or " + key.getAbsolutePath() + " — running WITHOUT TLS");
         }
 
         for (var s : controllers(super.serverURI))

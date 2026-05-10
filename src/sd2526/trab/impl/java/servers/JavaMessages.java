@@ -31,346 +31,311 @@ import sd2526.trab.impl.api.java.AdminMessages;
 import sd2526.trab.impl.db.DB;
 import sd2526.trab.impl.java.clients.Clients;
 import sd2526.trab.impl.utils.IP;
-import sd2526.trab.impl.utils.Sleep;
 
 public class JavaMessages extends JavaBaseService implements Messages, AdminMessages {
-	
-	private static final int REMOTE_COMM_DEADLINE = 90000;
-	private static final long MESSAGES_CACHE_EXPIRATION = 30000;
-	private static final long DIRTY_INBOX_CACHE_EXPIRATION = 10000;
 
-	final JobDispatcher jobs;
-	final AtomicLong counter = new AtomicLong(0L);	
-	private static Logger Log = Logger.getLogger(JavaMessages.class.getName());
+    private static final int REMOTE_COMM_DEADLINE = 90000;
+    private static final long MESSAGES_CACHE_EXPIRATION = 30000;
+    private static final long DIRTY_INBOX_CACHE_EXPIRATION = 10000;
 
-	
-	protected final Cache<String, Message> messagesCache = CacheBuilder.newBuilder()
-			.expireAfterWrite(Duration.ofMillis(MESSAGES_CACHE_EXPIRATION))
-			.build();
-	
-	protected final Cache<String, String> gcDeletedMessageCache = CacheBuilder.newBuilder()
-			.expireAfterWrite(Duration.ofMillis(DIRTY_INBOX_CACHE_EXPIRATION))
-			.removalListener( (removed) -> {
-				
-				// When triggered, removes any orphaned messages in the database, 
-				// i.e. messages that are no longer referenced by any inbox...
-				
-				var sqlExpr = """
-						SELECT * FROM Message m
-							WHERE NOT EXISTS 
-								(SELECT 1 FROM InboxEntry e WHERE e.mid = m.id)
-						""";
-						
-				DB.transaction( (hibernate) -> 
-					hibernate.select( sqlExpr, Message.class )
-						.thenWith( (orphans) -> hibernate.deleteMany( orphans ))	
-				);
-			})
-			.build();
-	
-	private JavaMessages() {
-		this.jobs = new JobDispatcher();
-	}
+    final JobDispatcher jobs;
+    final AtomicLong counter = new AtomicLong(0L);
+    private static Logger Log = Logger.getLogger(JavaMessages.class.getName());
 
-	@Override
-	public Result<String> postMessage(String pwd, Message msg) {
-		Log.info( () -> "postMessage : pwd = %s, msg = %s\n".formatted(pwd, msg));
+    protected final Cache<String, Message> messagesCache = CacheBuilder.newBuilder()
+            .expireAfterWrite(Duration.ofMillis(MESSAGES_CACHE_EXPIRATION))
+            .build();
 
-		return getUser(msg.getSender(), pwd)					
-				.thenWith( (user) -> doAsyncPost( user, msg ));			
-	}
+    protected final Cache<String, String> gcDeletedMessageCache = CacheBuilder.newBuilder()
+            .expireAfterWrite(Duration.ofMillis(DIRTY_INBOX_CACHE_EXPIRATION))
+            .removalListener((removed) -> {
+                var sqlExpr = """
+                        SELECT * FROM Message m
+                            WHERE NOT EXISTS 
+                                (SELECT 1 FROM InboxEntry e WHERE e.mid = m.id)
+                        """;
+                DB.transaction((hibernate) ->
+                        hibernate.select(sqlExpr, Message.class)
+                                .thenWith((orphans) -> hibernate.deleteMany(orphans))
+                );
+            })
+            .build();
 
-	@Override
-	public Result<Message> getInboxMessage(String name, String mid, String pwd) {
-		Log.info( () -> "getInboxMessage : name = %s, mid = %s, pwd = %s\n".formatted(name, mid, pwd));
-		
-		if( badParams( name, mid, pwd ) )
-			return error(BAD_REQUEST);
-		
-		return getUser(name, pwd)
-				.then( () -> DB.getOne( new InboxEntry(mid, name), InboxEntry.class))
-				.then(() -> DB.getOne( mid, Message.class));			
-	}
+    private JavaMessages() {
+        this.jobs = new JobDispatcher();
+    }
 
-	@Override
-	public Result<List<String>> getAllInboxMessages(String name, String pwd) {
-		Log.info( () -> "getAllInboxMessages : name = %s, pwd = %s\n".formatted(name, pwd));
-		
-		var sqlExpr = "SELECT m.mid FROM InboxEntry m WHERE m.recipient = '%s'".formatted(name);
-		return getUser(name, pwd )
-					.then( () -> DB.select( sqlExpr, String.class));		
-	}
-	
-	@Override
-	public Result<List<String>> searchInbox(String name, String pwd, String query) {
-		Log.info( () -> "searchInbox : name = %s, pwd = %s, query=%s\n".formatted(name, pwd, query));
-		
-		var sqlExpr = """
-				SELECT m.id FROM Message m
-				RIGHT JOIN InboxEntry e
-				ON e.mid = m.id 
-				AND e.recipient = '%s'
-				WHERE (upper(m.subject) LIKE '%%%s%%' OR upper(m.contents) LIKE '%%%s%%')
-				""".formatted(name, query.toUpperCase(), query.toUpperCase());
+    @Override
+    public Result<String> postMessage(String pwd, Message msg) {
+        Log.info(() -> "postMessage : pwd = %s, msg = %s\n".formatted(pwd, msg));
+        return getUser(msg.getSender(), pwd)
+                .thenWith((user) -> doAsyncPost(user, msg));
+    }
 
-		return getUser(name, pwd )
-				.then( () -> DB.select( sqlExpr, String.class));		
-	}
-	
-	@Override
-	public Result<Void> removeInboxMessage(String name, String mid, String pwd) {
-		Log.info( () -> "removeInboxMessage : name = %s, mid = %s, pwd = %s\n".formatted(name, mid, pwd));
-		
-		return getUser(name, pwd )
-				.then( () -> DB.deleteOne( new InboxEntry(mid, name) ) ).mapToVoid()
-				.then( () -> {
-					gcDeletedMessageCache.put( mid, mid );
-				});
-	}
+    @Override
+    public Result<Message> getInboxMessage(String name, String mid, String pwd) {
+        Log.info(() -> "getInboxMessage : name = %s, mid = %s, pwd = %s\n".formatted(name, mid, pwd));
 
-	@Override
-	public Result<Void> deleteMessage(String name, String mid, String pwd) {
-		Log.info( () -> "deleteMessage : name = %s, mid = %s, pwd = %s\n".formatted(name, mid, pwd));
+        if (badParams(name, mid, pwd))
+            return error(BAD_REQUEST);
 
-		return getUser(name, pwd)
-			.then(() -> {
-				var cached = messagesCache.getIfPresent(mid);
-				if (cached != null) return ok(cached);
-				var dbResult = DB.getOne(mid, Message.class);
-				Log.info("DB.getOne(" + mid + ") = " + (dbResult.isOK() ? dbResult.value().getSender() : dbResult.error()));
-				return dbResult;
-			})
-			.thenWith(msg -> name.equals(getName(msg.senderAddress())) ? ok(msg) : error(FORBIDDEN) )
-			.thenWith((msg) -> doAsyncDelete(msg));
-	}
-	
-	
-	protected Result<User> getUser( String user, String pwd) {
-		try {
-			var name = user.split("@", 2)[0];
-			Log.info("getUser called: name=" + name + " pwd=" + pwd);
-			var result = Clients.UsersClient.get().getUser(name, pwd);
-			Log.info("getUser result: " + result.error());
-			return result;
-		} catch (Exception x) {
-			Log.warning("getUser exception: " + x.getMessage());
-			x.printStackTrace();
-			return Result.error(INTERNAL_ERROR);
-		}
-	}
+        return getUser(name, pwd)
+                .then(() -> DB.getOne(new InboxEntry(mid, name), InboxEntry.class))
+                .then(() -> DB.getOne(mid, Message.class));
+    }
 
-	protected Result<Set<String>> checkUsers( Collection<String> addresses ) {
-		return Clients.AdminUsersClient.get().checkUsers(addresses);
-	}
+    @Override
+    public Result<List<String>> getAllInboxMessages(String name, String pwd) {
+        Log.info(() -> "getAllInboxMessages : name = %s, pwd = %s\n".formatted(name, pwd));
 
-	private void deliverToKnownLocalRecipients(Collection<String> addresses, Message msg) {
-		Log.info( () -> "deliverToKnownLocalRecipients : local known addresses = %s, msg = %s\n".formatted(addresses, msg));
+        var sqlExpr = "SELECT m.mid FROM InboxEntry m WHERE m.recipient = '%s'".formatted(name);
+        return getUser(name, pwd)
+                .then(() -> DB.select(sqlExpr, String.class));
+    }
 
-		DB.transaction((hibernate) -> {
-			hibernate.persistOne( msg );
-			for( var address : addresses )
-				hibernate.persistOne( new InboxEntry( msg.getId(), getName(address) ));
-			
-			return ok();
-		});
-		
-	}
-		
-	private void reportUnknownLocalRecipients(Collection<String> addresses, Message msg) {
-		Log.info( () -> "reportUnknownLocalRecipients : unknown addresses = %s, msg = %s\n".formatted(addresses, msg));
+    @Override
+    public Result<List<String>> searchInbox(String name, String pwd, String query) {
+        Log.info(() -> "searchInbox : name = %s, pwd = %s, query=%s\n".formatted(name, pwd, query));
 
-		var senderDomain = super.getDomain( msg.senderAddress() );
-		
-		try {
-			for( var recipientAddress : addresses ) {
-				var errorMsg = msg.cloneWithUserNotFound( recipientAddress );
-				if( super.isLocalDomain( senderDomain ) ) {
-					DB.transaction((hibernate)-> {
-						hibernate.persistOne( new InboxEntry( errorMsg.getId(), msg.senderName() )) ;						
-						hibernate.persistOne(errorMsg);							
-						return ok();
-					});
-				}
-				else doAsyncRemotePost(senderDomain, errorMsg);
-			}
-		} catch( Exception x ) {
-			x.printStackTrace();			
-		}
-	}	
-		
-	private Result<Void> postToLocalInboxes( Collection<String> addresses, Message msg) {
-		Log.info( () -> "postToLocalInboxes : localRecipients = %s, msg = %s\n".formatted(addresses, msg));
+        var sqlExpr = """
+                SELECT m.id FROM Message m
+                RIGHT JOIN InboxEntry e
+                ON e.mid = m.id 
+                AND e.recipient = '%s'
+                WHERE (upper(m.subject) LIKE '%%%s%%' OR upper(m.contents) LIKE '%%%s%%')
+                """.formatted(name, query.toUpperCase(), query.toUpperCase());
 
-		return checkUsers(addresses)
-				.thenWith( unknownAddresses -> {
+        return getUser(name, pwd)
+                .then(() -> DB.select(sqlExpr, String.class));
+    }
 
-					var knownAddresses = new HashSet<>( addresses );
-					knownAddresses.removeAll( unknownAddresses );
-	
-					if( knownAddresses.size() > 0 ) 
-						deliverToKnownLocalRecipients(knownAddresses, msg);
-					
-					if( unknownAddresses.size() > 0 )
-						reportUnknownLocalRecipients( unknownAddresses, msg );
-					
-					return ok();
-				});
-	}
-	
-	@Override
-	public Result<Void> remotePostMessage(Message msg) {
-		Log.info( () -> "postRemoteMessage : msg = %s\n".formatted(msg));
-				
-		var localAddresses = getLocalRecipientAddresses(msg);		
-		return postToLocalInboxes(localAddresses, msg);
-	}
+    @Override
+    public Result<Void> removeInboxMessage(String name, String mid, String pwd) {
+        Log.info(() -> "removeInboxMessage : name = %s, mid = %s, pwd = %s\n".formatted(name, mid, pwd));
 
-	private Result<Void> deleteFromLocalInbox(String mid) {
-		Log.info( () -> "deleteFromLocalInbox : mid = %s\n".formatted(mid));
-		
-		var sql = "SELECT * FROM InboxEntry e WHERE e.mid = '%s'".formatted(mid); 
-		
-		return DB.transaction( hibernate -> {
-			
-			hibernate.getOne(mid, Message.class)
-				.thenWith(msg -> hibernate.deleteOne(msg));
-			
-			return hibernate.select(sql, InboxEntry.class)			
-				.thenWith( (entries) -> hibernate.deleteMany( entries ) );				
-		});		
-	}
-	
-	@Override
-	public Result<Void> remoteDeleteMessage(String mid) {
-		Log.info( () -> "remoteDeleteMessage : mid = %s\n".formatted(mid));
-		
-		return deleteFromLocalInbox(mid);
-	}
-	
-	protected Result<Message> getCachedMessage( String mid ) {
-		var msg = messagesCache.getIfPresent( mid );
-		return msg != null ? ok( msg ) : error( FORBIDDEN );
-	}
-	
-	public final class JobDispatcher {
+        return getUser(name, pwd)
+                .then(() -> DB.deleteOne(new InboxEntry(mid, name))).mapToVoid()
+                .then(() -> {
+                    gcDeletedMessageCache.put(mid, mid);
+                });
+    }
 
-	    private final ConcurrentHashMap<String, ExecutorService> executors = new ConcurrentHashMap<>();
+    @Override
+    public Result<Void> deleteMessage(String name, String mid, String pwd) {
+        Log.info(() -> "deleteMessage : name = %s, mid = %s, pwd = %s\n".formatted(name, mid, pwd));
 
-	    public void submit(String domain, Runnable job) {
-	        ExecutorService executor = executors.computeIfAbsent(
-	            domain,
-	            d -> Executors.newSingleThreadExecutor(r -> {
-	                Thread t = new Thread(r);
-	                t.setUncaughtExceptionHandler((thr, ex) -> {
-	                	ex.printStackTrace();
-	                });
-	                return t;
-	            })
-	        );
-	        executor.submit( job );
-	    }
-	}
-	
-	public Result<String> doAsyncPost(User sender, Message msg) {
+        return getUser(name, pwd)
+                .then(() -> {
+                    var cached = messagesCache.getIfPresent(mid);
+                    if (cached != null) return ok(cached);
+                    return DB.getOne(mid, Message.class);
+                })
+                .thenWith(msg -> name.equals(getName(msg.senderAddress())) ? ok(msg) : error(FORBIDDEN))
+                .thenWith((msg) -> doAsyncDelete(msg));
+    }
 
-		return getCachedMessage(msg.originId()).mapValue(Message::getId).orElse(() -> {
-			
-			
-			msg.setId("%s+%04d".formatted(THIS_DOMAIN, counter.incrementAndGet()));
-			
-			messagesCache.put(msg.originId(), new Message( msg )); // For ensuring idempotency...
-			
-			msg.setSender("%s <%s@%s>".formatted(sender.getDisplayName(), sender.getName(), sender.getDomain()));
+    protected Result<User> getUser(String user, String pwd) {
+        try {
+            var name = user.split("@", 2)[0];
+            return Clients.UsersClient.get().getUser(name, pwd);
+        } catch (Exception x) {
+            x.printStackTrace();
+            return Result.error(INTERNAL_ERROR);
+        }
+    }
 
-			messagesCache.put(msg.getId(), msg); // For enabling delete of messages...
+    protected Result<Set<String>> checkUsers(Collection<String> addresses) {
+        return Clients.AdminUsersClient.get().checkUsers(addresses);
+    }
 
-			var localAdresses = getLocalRecipientAddresses(msg);
-			var remoteAddresses = getRemoteRecipientAddresses(msg);
+    private void deliverToKnownLocalRecipients(Collection<String> addresses, Message msg) {
+        Log.info(() -> "deliverToKnownLocalRecipients : local known addresses = %s, msg = %s\n".formatted(addresses, msg));
+        DB.transaction((hibernate) -> {
+            hibernate.persistOne(msg);
+            for (var address : addresses)
+                hibernate.persistOne(new InboxEntry(msg.getId(), getName(address)));
+            return ok();
+        });
+    }
 
-			System.out.println("Local Recipients:" + localAdresses);
-			System.out.println("Remote Recipients:" + remoteAddresses);
+    private void reportUnknownLocalRecipients(Collection<String> addresses, Message msg) {
+        Log.info(() -> "reportUnknownLocalRecipients : unknown addresses = %s, msg = %s\n".formatted(addresses, msg));
+        var senderDomain = super.getDomain(msg.senderAddress());
+        try {
+            for (var recipientAddress : addresses) {
+                var errorMsg = msg.cloneWithUserNotFound(recipientAddress);
+                if (super.isLocalDomain(senderDomain)) {
+                    DB.transaction((hibernate) -> {
+                        hibernate.persistOne(new InboxEntry(errorMsg.getId(), msg.senderName()));
+                        hibernate.persistOne(errorMsg);
+                        return ok();
+                    });
+                } else doAsyncRemotePost(senderDomain, errorMsg);
+            }
+        } catch (Exception x) {
+            x.printStackTrace();
+        }
+    }
 
-			if (localAdresses.size() > 0)
-				postToLocalInboxes(localAdresses, msg);
+    private Result<Void> postToLocalInboxes(Collection<String> addresses, Message msg) {
+        Log.info(() -> "postToLocalInboxes : localRecipients = %s, msg = %s\n".formatted(addresses, msg));
+        return checkUsers(addresses)
+                .thenWith(unknownAddresses -> {
+                    var knownAddresses = new HashSet<>(addresses);
+                    knownAddresses.removeAll(unknownAddresses);
+                    if (knownAddresses.size() > 0)
+                        deliverToKnownLocalRecipients(knownAddresses, msg);
+                    if (unknownAddresses.size() > 0)
+                        reportUnknownLocalRecipients(unknownAddresses, msg);
+                    return ok();
+                });
+    }
 
-			if (remoteAddresses.size() > 0) {
+    @Override
+    public Result<Void> remotePostMessage(Message msg) {
+        Log.info(() -> "postRemoteMessage : msg = %s\n".formatted(msg));
+        var localAddresses = getLocalRecipientAddresses(msg);
+        return postToLocalInboxes(localAddresses, msg);
+    }
 
-				var remoteTargets = remoteAddresses.stream().collect(
-						Collectors.groupingBy( super::getDomain, Collectors.mapping( address -> address, Collectors.toSet())));
+    private Result<Void> deleteFromLocalInbox(String mid) {
+        Log.info(() -> "deleteFromLocalInbox : mid = %s\n".formatted(mid));
+        var sql = "SELECT * FROM InboxEntry e WHERE e.mid = '%s'".formatted(mid);
+        return DB.transaction(hibernate -> {
+            hibernate.getOne(mid, Message.class)
+                    .thenWith(msg -> hibernate.deleteOne(msg));
+            return hibernate.select(sql, InboxEntry.class)
+                    .thenWith((entries) -> hibernate.deleteMany(entries));
+        });
+    }
 
-				for (var e : remoteTargets.entrySet()) {
-					var domain = e.getKey();
-					var domainRecipientAddressess = e.getValue();
-					
-					jobs.submit(domain, () -> {
-						var res = super.reTry(() -> Clients.AdminMessagesClient.get(domain).remotePostMessage(msg), REMOTE_COMM_DEADLINE);
-						if (res.error() == ErrorCode.TIMEOUT) {
-							for (var address : domainRecipientAddressess)
-								postToLocalInboxes(Set.of(msg.senderAddress()), msg.cloneWithTimeout(address));
-						}
-					});
-					
-				}
-			}
-			return Result.ok(msg.getId());
-		});
-	}
-		
-		public Result<Void> doAsyncDelete( Message msg ) {
-			var domains = msg.getDestination().stream().map( r -> r.split("@")[1]).collect( Collectors.toSet() );
-			for( var domain : domains )
-				if( domain.equals( IP.domain() ))
-					deleteFromLocalInbox( msg.getId() );
-				else
-					jobs.submit(domain, () -> {
-						super.reTry(()-> Clients.AdminMessagesClient.get(domain).remoteDeleteMessage(msg.getId()), REMOTE_COMM_DEADLINE);			
-					});				
-			return Result.ok();
-		}
-		
-		public void doAsyncRemotePost( String remoteDomain, Message msg ) {
-			Log.info( () -> "\nenqueueRemotePost : remoteDomain=%s, msg = %s\n".formatted(remoteDomain, msg));			
-			jobs.submit(remoteDomain, () -> {
-				super.reTry(() -> Clients.AdminMessagesClient.get(remoteDomain).remotePostMessage(msg), REMOTE_COMM_DEADLINE);			
-			});				
-		}
-		
-		@Override
-		public Result<Void> remoteDeleteUserInbox(String name) {
-			Log.info( () -> "remoteDeleteUserInbox : name = %s\n".formatted(name));
-			
-			var sqlExpr = "SELECT * FROM InboxEntry e WHERE e.recipient = '%s'".formatted(name); 
-			
-			return DB.transaction( hibernate -> {
-				
-				return hibernate.select(sqlExpr, InboxEntry.class)			
-					.thenWith( (entries) -> {
-						hibernate.deleteMany( entries );
-						for( var e: entries )
-							gcDeletedMessageCache.put( e.mid, e.mid);
-						
-						return ok();
-					} );
-			});		
-			
-		}	
-		
-		
-		private List<String> getLocalRecipientAddresses(  Message msg ) {
-			return msg.getDestination().stream().filter( super::isLocalAddress ).toList();			
-		} 
+    @Override
+    public Result<Void> remoteDeleteMessage(String mid) {
+        Log.info(() -> "remoteDeleteMessage : mid = %s\n".formatted(mid));
+        return deleteFromLocalInbox(mid);
+    }
 
-		private Set<String> getRemoteRecipientAddresses(  Message msg ) {
-			return msg.getDestination().stream().filter( Predicate.not(super::isLocalAddress)).collect( Collectors.toSet() );			
-		} 
-		
-		
-		static JavaMessages instance;
-		
-		public static synchronized JavaMessages getInstance() {
-			if( instance == null )
-				instance = new JavaMessages();
-			return instance;
-		}
-	}
+    protected Result<Message> getCachedMessage(String mid) {
+        var msg = messagesCache.getIfPresent(mid);
+        return msg != null ? ok(msg) : error(FORBIDDEN);
+    }
 
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    private List<String> getLocalRecipientAddresses(Message msg) {
+        return msg.getDestination().stream().filter(super::isLocalAddress).toList();
+    }
+
+    private Set<String> getRemoteRecipientAddresses(Message msg) {
+        return msg.getDestination().stream()
+                .filter(Predicate.not(super::isLocalAddress))
+                .collect(Collectors.toSet());
+    }
+
+    // ── async operations ─────────────────────────────────────────────────────
+
+    public Result<String> doAsyncPost(User sender, Message msg) {
+        return getCachedMessage(msg.originId()).mapValue(Message::getId).orElse(() -> {
+
+            msg.setId("%s+%04d".formatted(THIS_DOMAIN, counter.incrementAndGet()));
+            messagesCache.put(msg.originId(), new Message(msg));
+            msg.setSender("%s <%s@%s>".formatted(sender.getDisplayName(), sender.getName(), sender.getDomain()));
+            messagesCache.put(msg.getId(), msg);
+
+            var localAddresses = getLocalRecipientAddresses(msg);
+            var remoteAddresses = getRemoteRecipientAddresses(msg);
+
+            if (localAddresses.size() > 0)
+                postToLocalInboxes(localAddresses, msg);
+
+            if (remoteAddresses.size() > 0) {
+                var remoteTargets = remoteAddresses.stream().collect(
+                        Collectors.groupingBy(super::getDomain,
+                                Collectors.mapping(address -> address, Collectors.toSet())));
+
+                for (var e : remoteTargets.entrySet()) {
+                    var domain = e.getKey();
+                    var domainRecipientAddresses = e.getValue();
+
+                    jobs.submit(domain, () -> {
+                        var res = super.reTry(
+                                () -> Clients.AdminMessagesClient.get(domain).remotePostMessage(msg),
+                                REMOTE_COMM_DEADLINE);
+                        if (res.error() == ErrorCode.TIMEOUT) {
+                            for (var address : domainRecipientAddresses)
+                                postToLocalInboxes(Set.of(msg.senderAddress()), msg.cloneWithTimeout(address));
+                        }
+                    });
+                }
+            }
+            return Result.ok(msg.getId());
+        });
+    }
+
+    public Result<Void> doAsyncDelete(Message msg) {
+        var domains = msg.getDestination().stream()
+                .map(r -> r.split("@")[1])
+                .collect(Collectors.toSet());
+        for (var domain : domains)
+            if (domain.equals(IP.domain()))
+                deleteFromLocalInbox(msg.getId());
+            else
+                jobs.submit(domain, () -> {
+                    super.reTry(
+                            () -> Clients.AdminMessagesClient.get(domain).remoteDeleteMessage(msg.getId()),
+                            REMOTE_COMM_DEADLINE);
+                });
+        return Result.ok();
+    }
+
+    public void doAsyncRemotePost(String remoteDomain, Message msg) {
+        Log.info(() -> "\nenqueueRemotePost : remoteDomain=%s, msg = %s\n".formatted(remoteDomain, msg));
+        jobs.submit(remoteDomain, () -> {
+            super.reTry(
+                    () -> Clients.AdminMessagesClient.get(remoteDomain).remotePostMessage(msg),
+                    REMOTE_COMM_DEADLINE);
+        });
+    }
+
+    @Override
+    public Result<Void> remoteDeleteUserInbox(String name) {
+        Log.info(() -> "remoteDeleteUserInbox : name = %s\n".formatted(name));
+        var sqlExpr = "SELECT * FROM InboxEntry e WHERE e.recipient = '%s'".formatted(name);
+        return DB.transaction(hibernate -> {
+            return hibernate.select(sqlExpr, InboxEntry.class)
+                    .thenWith((entries) -> {
+                        hibernate.deleteMany(entries);
+                        for (var e : entries)
+                            gcDeletedMessageCache.put(e.mid, e.mid);
+                        return ok();
+                    });
+        });
+    }
+
+    // ── JobDispatcher ─────────────────────────────────────────────────────────
+
+    public final class JobDispatcher {
+        private final ConcurrentHashMap<String, ExecutorService> executors = new ConcurrentHashMap<>();
+
+        public void submit(String domain, Runnable job) {
+            ExecutorService executor = executors.computeIfAbsent(
+                    domain,
+                    d -> Executors.newSingleThreadExecutor(r -> {
+                        Thread t = new Thread(r);
+                        t.setUncaughtExceptionHandler((thr, ex) -> ex.printStackTrace());
+                        return t;
+                    }));
+            executor.submit(job);
+        }
+    }
+
+    // ── singleton ─────────────────────────────────────────────────────────────
+
+    static JavaMessages instance;
+
+    public static synchronized JavaMessages getInstance() {
+        if (instance == null)
+            instance = new JavaMessages();
+        return instance;
+    }
+}

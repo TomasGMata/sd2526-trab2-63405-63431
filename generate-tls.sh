@@ -54,3 +54,24 @@ done
 
 echo "Certificados em tls/"
 ls tls/
+
+# 4. Exportar .crt e .pem para cada host (necessário para gRPC TLS)
+for HOST in "${HOSTS[@]}"; do
+  echo "Exportando .crt e .pem para $HOST..."
+  
+  # Exportar certificado em formato PEM (.crt)
+  keytool -exportcert \
+    -alias $HOST \
+    -keystore tls/$HOST-server.ks \
+    -storepass password \
+    -file tls/$HOST-server.crt \
+    -rfc \
+    -noprompt
+
+  # Exportar chave privada em formato PEM (.pem)
+  openssl pkcs12 \
+    -in tls/$HOST-server.ks \
+    -nocerts -nodes \
+    -out tls/$HOST-server.pem \
+    -passin pass:password
+done
