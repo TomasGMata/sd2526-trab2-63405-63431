@@ -21,9 +21,15 @@ public class IP {
 		}
 	}
 	
-	public static String domain() {		
-		var h = hostname();
-		int i = h.indexOf('.');
-		return i < 0 ? h : h.substring(i+1);
-	}
+	public static String domain() {
+    // Tenta primeiro a variável de ambiente MY_DOMAIN
+    String envDomain = System.getenv("MY_DOMAIN");
+    if (envDomain != null && !envDomain.isEmpty())
+        return envDomain;
+    
+    // Fallback: extrai do hostname
+    var h = hostname();
+    int i = h.indexOf('.');
+    return i < 0 ? h : h.substring(i + 1);
+}
 }

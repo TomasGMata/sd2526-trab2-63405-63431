@@ -25,24 +25,19 @@ public abstract class AbstractGrpcServer extends AbstractServer {
 
         var builder = NettyServerBuilder.forPort(port);
 
-        /*
-         * TLS support
-         */
         var keystore = System.getProperty("javax.net.ssl.keyStore");
 
-		if (keystore == null) {
-			String hostname = IP.hostname();
-			keystore = "/home/sd/tls/" + hostname + "-server";
-			System.setProperty("javax.net.ssl.keyStore", keystore);
-			Log.info("keyStore not set, defaulting to: " + keystore);
-		}
+        if (keystore == null) {
+            keystore = "/home/sd/tls/" + IP.hostname() + "-server";
+            System.setProperty("javax.net.ssl.keyStore", keystore);
+            Log.info("keyStore not set, defaulting to: " + keystore);
+        }
 
-		if (keystore.endsWith(".ks")) {
-			keystore = keystore.substring(0, keystore.length() - 3);
-		}
+        if (keystore.endsWith(".ks"))
+            keystore = keystore.substring(0, keystore.length() - 3);
 
-		var cert = new File(keystore + ".crt");
-		var key  = new File(keystore + ".pem");
+        var cert = new File(keystore + ".crt");
+        var key  = new File(keystore + ".pem");
 
         if (cert.exists() && key.exists()) {
             try {
@@ -52,8 +47,9 @@ public abstract class AbstractGrpcServer extends AbstractServer {
                 throw new RuntimeException(e);
             }
         } else {
-            Log.warning("TLS files not found: " + cert.getAbsolutePath()
-                    + " or " + key.getAbsolutePath() + " — running WITHOUT TLS");
+            throw new RuntimeException(
+                "Ficheiros TLS não encontrados:\n  cert: " + cert.getAbsolutePath()
+                + "\n  key:  " + key.getAbsolutePath());
         }
 
         for (var s : controllers(super.serverURI))
@@ -70,13 +66,19 @@ public abstract class AbstractGrpcServer extends AbstractServer {
 
         server.start();
 
-        Log.info(String.format("%s gRPC Server ready @ %s\n",
-                service, serverURI));
+        Log.info(String.format("%s gRPC Server ready @ %s\n", service, serverURI));
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.err.println("*** shutting down gRPC server since JVM is shutting down");
             server.shutdownNow();
             System.err.println("*** server shut down");
         }));
+
+        try {
+            server.awaitTermination(); // ← bloqueia o processo
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            Log.warning("gRPC server interrupted: " + e.getMessage());
+        }
     }
 }

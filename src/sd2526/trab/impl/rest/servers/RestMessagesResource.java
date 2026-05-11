@@ -5,10 +5,8 @@ import java.util.List;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 
-import jakarta.inject.Singleton;
 import jakarta.ws.rs.core.Context;
 import sd2526.trab.api.Message;
-import static sd2526.trab.api.java.Result.*;
 import sd2526.trab.api.java.Messages;
 import sd2526.trab.api.rest.RestMessages;
 import sd2526.trab.impl.api.java.AdminMessages;
@@ -19,7 +17,6 @@ import sd2526.trab.impl.utils.ServerConfig;
 import sd2526.trab.impl.utils.SyncPoint;
 import sd2526.trab.impl.utils.kafka.KafkaPublisher;
 
-@Singleton
 public class RestMessagesResource extends RestResource implements RestMessages, RestAdminMessages {
 
     @Context
@@ -36,19 +33,14 @@ public class RestMessagesResource extends RestResource implements RestMessages, 
     private static final Gson gson = new Gson();
 
     static boolean isGateway = false;
-
     Messages impl;
+
+    public RestMessagesResource() {}
 
     synchronized Messages impl() {
         if (impl == null)
             impl = isGateway ? Clients.MessagesClient.get() : JavaMessages.getInstance();
         return impl;
-    }
-
-    public RestMessagesResource() {}
-
-    RestMessagesResource(boolean gw) {
-        isGateway = gw;
     }
 
     @Override
@@ -86,8 +78,9 @@ public class RestMessagesResource extends RestResource implements RestMessages, 
 
     @Override
     public void deleteMessage(String name, String mid, String pwd) {
-        if (isGateway || !RestMessagesServer.kafkaAvailable) { 
-            super.resultOrThrow(impl().deleteMessage(name, mid, pwd)); return; 
+        if (isGateway || !RestMessagesServer.kafkaAvailable) {
+            super.resultOrThrow(impl().deleteMessage(name, mid, pwd));
+            return;
         }
 
         JsonObject obj = new JsonObject();

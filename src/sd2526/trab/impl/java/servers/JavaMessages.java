@@ -51,7 +51,7 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
             .removalListener((removed) -> {
                 var sqlExpr = """
                         SELECT * FROM Message m
-                            WHERE NOT EXISTS 
+                            WHERE NOT EXISTS
                                 (SELECT 1 FROM InboxEntry e WHERE e.mid = m.id)
                         """;
                 DB.transaction((hibernate) ->
@@ -68,8 +68,12 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
     @Override
     public Result<String> postMessage(String pwd, Message msg) {
         Log.info(() -> "postMessage : pwd = %s, msg = %s\n".formatted(pwd, msg));
+
+        if (msg == null || badParams(pwd) || badParams(msg.getSender()) || msg.getDestination() == null || msg.getDestination().isEmpty())
+            return error(BAD_REQUEST);
+
         return getUser(msg.getSender(), pwd)
-                .thenWith((user) -> doAsyncPost(user, msg));
+                .thenWith(user -> doSyncPost(user, msg));
     }
 
     @Override
@@ -79,7 +83,7 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
         if (badParams(name, mid, pwd))
             return error(BAD_REQUEST);
 
-        return getUser(name, pwd)
+        return getUser(name + "@" + THIS_DOMAIN, pwd)
                 .then(() -> DB.getOne(new InboxEntry(mid, name), InboxEntry.class))
                 .then(() -> DB.getOne(mid, Message.class));
     }
@@ -88,8 +92,11 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
     public Result<List<String>> getAllInboxMessages(String name, String pwd) {
         Log.info(() -> "getAllInboxMessages : name = %s, pwd = %s\n".formatted(name, pwd));
 
+        if (badParams(name, pwd))
+            return error(BAD_REQUEST);
+
         var sqlExpr = "SELECT m.mid FROM InboxEntry m WHERE m.recipient = '%s'".formatted(name);
-        return getUser(name, pwd)
+        return getUser(name + "@" + THIS_DOMAIN, pwd)
                 .then(() -> DB.select(sqlExpr, String.class));
     }
 
@@ -97,15 +104,18 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
     public Result<List<String>> searchInbox(String name, String pwd, String query) {
         Log.info(() -> "searchInbox : name = %s, pwd = %s, query=%s\n".formatted(name, pwd, query));
 
+        if (badParams(name, pwd, query))
+            return error(BAD_REQUEST);
+
         var sqlExpr = """
                 SELECT m.id FROM Message m
                 RIGHT JOIN InboxEntry e
-                ON e.mid = m.id 
+                ON e.mid = m.id
                 AND e.recipient = '%s'
                 WHERE (upper(m.subject) LIKE '%%%s%%' OR upper(m.contents) LIKE '%%%s%%')
                 """.formatted(name, query.toUpperCase(), query.toUpperCase());
 
-        return getUser(name, pwd)
+        return getUser(name + "@" + THIS_DOMAIN, pwd)
                 .then(() -> DB.select(sqlExpr, String.class));
     }
 
@@ -113,7 +123,10 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
     public Result<Void> removeInboxMessage(String name, String mid, String pwd) {
         Log.info(() -> "removeInboxMessage : name = %s, mid = %s, pwd = %s\n".formatted(name, mid, pwd));
 
-        return getUser(name, pwd)
+        if (badParams(name, mid, pwd))
+            return error(BAD_REQUEST);
+
+        return getUser(name + "@" + THIS_DOMAIN, pwd)
                 .then(() -> DB.deleteOne(new InboxEntry(mid, name))).mapToVoid()
                 .then(() -> {
                     gcDeletedMessageCache.put(mid, mid);
@@ -124,28 +137,41 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
     public Result<Void> deleteMessage(String name, String mid, String pwd) {
         Log.info(() -> "deleteMessage : name = %s, mid = %s, pwd = %s\n".formatted(name, mid, pwd));
 
-        return getUser(name, pwd)
+        if (badParams(name, mid, pwd))
+            return error(BAD_REQUEST);
+
+        return getUser(name + "@" + THIS_DOMAIN, pwd)
                 .then(() -> {
                     var cached = messagesCache.getIfPresent(mid);
                     if (cached != null) return ok(cached);
                     return DB.getOne(mid, Message.class);
                 })
                 .thenWith(msg -> name.equals(getName(msg.senderAddress())) ? ok(msg) : error(FORBIDDEN))
-                .thenWith((msg) -> doAsyncDelete(msg));
+                .thenWith(this::doSyncDelete);
     }
 
-    protected Result<User> getUser(String user, String pwd) {
+    protected Result<User> getUser(String userAddress, String pwd) {
         try {
-            var name = user.split("@", 2)[0];
-            return Clients.UsersClient.get().getUser(name, pwd);
+            if (badParams(userAddress, pwd))
+                return error(BAD_REQUEST);
+
+            var name = getName(userAddress);
+            var domain = getDomain(userAddress);
+
+            return Clients.UsersClient.get(domain).getUser(name, pwd);
         } catch (Exception x) {
             x.printStackTrace();
-            return Result.error(INTERNAL_ERROR);
+            return error(INTERNAL_ERROR);
         }
     }
 
     protected Result<Set<String>> checkUsers(Collection<String> addresses) {
-        return Clients.AdminUsersClient.get().checkUsers(addresses);
+        try {
+            return Clients.AdminUsersClient.get().checkUsers(addresses);
+        } catch (Exception x) {
+            x.printStackTrace();
+            return error(INTERNAL_ERROR);
+        }
     }
 
     private void deliverToKnownLocalRecipients(Collection<String> addresses, Message msg) {
@@ -170,7 +196,9 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
                         hibernate.persistOne(errorMsg);
                         return ok();
                     });
-                } else doAsyncRemotePost(senderDomain, errorMsg);
+                } else {
+                    doAsyncRemotePost(senderDomain, errorMsg);
+                }
             }
         } catch (Exception x) {
             x.printStackTrace();
@@ -179,21 +207,32 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
 
     private Result<Void> postToLocalInboxes(Collection<String> addresses, Message msg) {
         Log.info(() -> "postToLocalInboxes : localRecipients = %s, msg = %s\n".formatted(addresses, msg));
+
+        if (addresses == null || addresses.isEmpty())
+            return ok();
+
         return checkUsers(addresses)
                 .thenWith(unknownAddresses -> {
                     var knownAddresses = new HashSet<>(addresses);
                     knownAddresses.removeAll(unknownAddresses);
-                    if (knownAddresses.size() > 0)
+
+                    if (!knownAddresses.isEmpty())
                         deliverToKnownLocalRecipients(knownAddresses, msg);
-                    if (unknownAddresses.size() > 0)
+
+                    if (!unknownAddresses.isEmpty())
                         reportUnknownLocalRecipients(unknownAddresses, msg);
+
                     return ok();
                 });
     }
 
     @Override
     public Result<Void> remotePostMessage(Message msg) {
-        Log.info(() -> "postRemoteMessage : msg = %s\n".formatted(msg));
+        Log.info(() -> "remotePostMessage : msg = %s\n".formatted(msg));
+
+        if (msg == null || msg.getDestination() == null || msg.getDestination().isEmpty())
+            return error(BAD_REQUEST);
+
         var localAddresses = getLocalRecipientAddresses(msg);
         return postToLocalInboxes(localAddresses, msg);
     }
@@ -205,13 +244,15 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
             hibernate.getOne(mid, Message.class)
                     .thenWith(msg -> hibernate.deleteOne(msg));
             return hibernate.select(sql, InboxEntry.class)
-                    .thenWith((entries) -> hibernate.deleteMany(entries));
+                    .thenWith(entries -> hibernate.deleteMany(entries));
         });
     }
 
     @Override
     public Result<Void> remoteDeleteMessage(String mid) {
         Log.info(() -> "remoteDeleteMessage : mid = %s\n".formatted(mid));
+        if (badParams(mid))
+            return error(BAD_REQUEST);
         return deleteFromLocalInbox(mid);
     }
 
@@ -219,8 +260,6 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
         var msg = messagesCache.getIfPresent(mid);
         return msg != null ? ok(msg) : error(FORBIDDEN);
     }
-
-    // ── helpers ──────────────────────────────────────────────────────────────
 
     private List<String> getLocalRecipientAddresses(Message msg) {
         return msg.getDestination().stream().filter(super::isLocalAddress).toList();
@@ -232,23 +271,24 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
                 .collect(Collectors.toSet());
     }
 
-    // ── async operations ─────────────────────────────────────────────────────
-
-    public Result<String> doAsyncPost(User sender, Message msg) {
+    public Result<String> doSyncPost(User sender, Message msg) {
         return getCachedMessage(msg.originId()).mapValue(Message::getId).orElse(() -> {
 
             msg.setId("%s+%04d".formatted(THIS_DOMAIN, counter.incrementAndGet()));
             messagesCache.put(msg.originId(), new Message(msg));
             msg.setSender("%s <%s@%s>".formatted(sender.getDisplayName(), sender.getName(), sender.getDomain()));
-            messagesCache.put(msg.getId(), msg);
+            messagesCache.put(msg.getId(), new Message(msg));
 
             var localAddresses = getLocalRecipientAddresses(msg);
             var remoteAddresses = getRemoteRecipientAddresses(msg);
 
-            if (localAddresses.size() > 0)
-                postToLocalInboxes(localAddresses, msg);
+            if (!localAddresses.isEmpty()) {
+                var res = postToLocalInboxes(localAddresses, msg);
+                if (!res.isOK())
+                    return error(res.error());
+            }
 
-            if (remoteAddresses.size() > 0) {
+            if (!remoteAddresses.isEmpty()) {
                 var remoteTargets = remoteAddresses.stream().collect(
                         Collectors.groupingBy(super::getDomain,
                                 Collectors.mapping(address -> address, Collectors.toSet())));
@@ -257,35 +297,48 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
                     var domain = e.getKey();
                     var domainRecipientAddresses = e.getValue();
 
-                    jobs.submit(domain, () -> {
-                        var res = super.reTry(
-                                () -> Clients.AdminMessagesClient.get(domain).remotePostMessage(msg),
-                                REMOTE_COMM_DEADLINE);
+                    var res = super.reTry(
+                            () -> Clients.AdminMessagesClient.get(domain).remotePostMessage(msg),
+                            REMOTE_COMM_DEADLINE);
+
+                    if (!res.isOK()) {
                         if (res.error() == ErrorCode.TIMEOUT) {
-                            for (var address : domainRecipientAddresses)
-                                postToLocalInboxes(Set.of(msg.senderAddress()), msg.cloneWithTimeout(address));
+                            for (var address : domainRecipientAddresses) {
+                                var timeoutMsg = msg.cloneWithTimeout(address);
+                                var notifyRes = postToLocalInboxes(Set.of(msg.senderAddress()), timeoutMsg);
+                                if (!notifyRes.isOK())
+                                    return error(notifyRes.error());
+                            }
+                        } else {
+                            return error(INTERNAL_ERROR);
                         }
-                    });
+                    }
                 }
             }
-            return Result.ok(msg.getId());
+            return ok(msg.getId());
         });
     }
 
-    public Result<Void> doAsyncDelete(Message msg) {
+    public Result<Void> doSyncDelete(Message msg) {
         var domains = msg.getDestination().stream()
-                .map(r -> r.split("@")[1])
+                .map(this::getDomain)
                 .collect(Collectors.toSet());
-        for (var domain : domains)
-            if (domain.equals(IP.domain()))
-                deleteFromLocalInbox(msg.getId());
-            else
-                jobs.submit(domain, () -> {
-                    super.reTry(
-                            () -> Clients.AdminMessagesClient.get(domain).remoteDeleteMessage(msg.getId()),
-                            REMOTE_COMM_DEADLINE);
-                });
-        return Result.ok();
+
+        for (var domain : domains) {
+            if (domain.equals(IP.domain())) {
+                var res = deleteFromLocalInbox(msg.getId());
+                if (!res.isOK())
+                    return error(res.error());
+            } else {
+                var res = super.reTry(
+                        () -> Clients.AdminMessagesClient.get(domain).remoteDeleteMessage(msg.getId()),
+                        REMOTE_COMM_DEADLINE);
+
+                if (!res.isOK())
+                    return error(INTERNAL_ERROR);
+            }
+        }
+        return ok();
     }
 
     public void doAsyncRemotePost(String remoteDomain, Message msg) {
@@ -300,10 +353,14 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
     @Override
     public Result<Void> remoteDeleteUserInbox(String name) {
         Log.info(() -> "remoteDeleteUserInbox : name = %s\n".formatted(name));
+
+        if (badParams(name))
+            return error(BAD_REQUEST);
+
         var sqlExpr = "SELECT * FROM InboxEntry e WHERE e.recipient = '%s'".formatted(name);
         return DB.transaction(hibernate -> {
             return hibernate.select(sqlExpr, InboxEntry.class)
-                    .thenWith((entries) -> {
+                    .thenWith(entries -> {
                         hibernate.deleteMany(entries);
                         for (var e : entries)
                             gcDeletedMessageCache.put(e.mid, e.mid);
@@ -311,8 +368,6 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
                     });
         });
     }
-
-    // ── JobDispatcher ─────────────────────────────────────────────────────────
 
     public final class JobDispatcher {
         private final ConcurrentHashMap<String, ExecutorService> executors = new ConcurrentHashMap<>();
@@ -328,8 +383,6 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
             executor.submit(job);
         }
     }
-
-    // ── singleton ─────────────────────────────────────────────────────────────
 
     static JavaMessages instance;
 

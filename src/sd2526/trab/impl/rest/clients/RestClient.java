@@ -8,6 +8,8 @@ import static sd2526.trab.api.java.Result.ErrorCode.TIMEOUT;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
 
+import javax.net.ssl.SSLContext;
+
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
 
@@ -43,8 +45,16 @@ public class RestClient {
         config.property(ClientProperties.READ_TIMEOUT, READ_TIMEOUT);
         config.property(ClientProperties.CONNECT_TIMEOUT, CONNECT_TIMEOUT);
 
+        SSLContext sslContext;
+        try {
+            sslContext = SSLContext.getDefault();
+        } catch (Exception e) {
+            throw new RuntimeException("Falha ao obter SSLContext: " + e.getMessage(), e);
+        }
+
         this.client = ClientBuilder.newBuilder()
                 .withConfig(config)
+                .sslContext(sslContext)
                 .hostnameVerifier((hostname, session) -> true)
                 .build();
 

@@ -1,5 +1,6 @@
 package sd2526.trab.impl.rest.servers;
 
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.logging.Logger;
 
@@ -11,18 +12,21 @@ import com.google.gson.JsonParser;
 
 import sd2526.trab.api.Message;
 import sd2526.trab.api.java.Messages;
+import sd2526.trab.impl.db.Hibernate;
 import sd2526.trab.impl.java.servers.JavaMessages;
+import sd2526.trab.impl.utils.IP;
 import sd2526.trab.impl.utils.ServerConfig;
 import sd2526.trab.impl.utils.SyncPoint;
+import sd2526.trab.impl.utils.TLS;
 import sd2526.trab.impl.utils.kafka.KafkaSubscriber;
 import sd2526.trab.impl.utils.kafka.KafkaUtils;
-import sd2526.trab.impl.utils.TLS;
 
 public class RestMessagesServer extends AbstractRestServer {
+
     public static final int PORT = 4567;
 
     public static final String KAFKA_TOPIC = "messages-" +
-        System.getenv().getOrDefault("DOMAIN", "default");
+            System.getenv().getOrDefault("DOMAIN", "default");
 
     public static boolean kafkaAvailable = false;
 
@@ -40,41 +44,50 @@ public class RestMessagesServer extends AbstractRestServer {
 
     public static void main(String[] args) {
         try {
-            if (args.length > 0) ServerConfig.setSecret(args[0]);
-            
+            if (args.length > 0)
+                ServerConfig.setSecret(args[0]);
+
+            Hibernate.getInstance();
+
             var server = new RestMessagesServer();
-            if (args.length > 2)
-                server.setSSLContext(TLS.serverContextFromFile(args[1], args[2]));
-            else
-                throw new RuntimeException("Keystore args required: <secret> <keystore> <password>");
+
+            if (args.length > 2) {
+                String domain = IP.domain();
+                String dir = args[1].substring(0, args[1].lastIndexOf('/') + 1);
+                String file = Paths.get(args[1]).getFileName().toString()
+                        .replaceAll("ourorg\\d+", domain);
+                String correctedPath = dir + file;
+                server.setSSLContext(TLS.serverContextFromFile(correctedPath, args[2]));
+            }
 
             try {
                 KafkaUtils.createTopic(KAFKA_TOPIC);
 
                 KafkaSubscriber.createSubscriber("kafka:9092", List.of(KAFKA_TOPIC))
-                    .start(record -> {
-                        JsonObject obj = JsonParser.parseString(record.value()).getAsJsonObject();
-                        String op = obj.get("op").getAsString();
-                        SyncPoint sp = SyncPoint.getSyncPoint();
+                        .start(record -> {
+                            JsonObject obj = JsonParser.parseString(record.value()).getAsJsonObject();
+                            String op = obj.get("op").getAsString();
+                            SyncPoint sp = SyncPoint.getSyncPoint();
 
-                        switch (op) {
-                            case "postMessage" -> {
-                                String pwd = obj.get("pwd").getAsString();
-                                Message msg = gson.fromJson(obj.get("msg"), Message.class);
-                                var result = JavaMessages.getInstance().postMessage(pwd, msg);
-                                sp.setResult(record.offset(), result.isOK() ? result.value() : null);
+                            switch (op) {
+                                case "postMessage" -> {
+                                    String pwd = obj.get("pwd").getAsString();
+                                    Message msg = gson.fromJson(obj.get("msg"), Message.class);
+                                    var result = JavaMessages.getInstance().postMessage(pwd, msg);
+                                    sp.setResult(record.offset(), result.isOK() ? result.value() : null);
+                                }
+                                case "deleteMessage" -> {
+                                    String pwd = obj.get("pwd").getAsString();
+                                    String mid = obj.get("mid").getAsString();
+                                    String name = obj.get("name").getAsString();
+                                    var result = JavaMessages.getInstance().deleteMessage(name, mid, pwd);
+                                    sp.setResult(record.offset(), result.isOK() ? null : result.error().name());
+                                }
                             }
-                            case "deleteMessage" -> {
-                                String pwd = obj.get("pwd").getAsString();
-                                String mid = obj.get("mid").getAsString();
-                                String name = obj.get("name").getAsString();
-                                var result = JavaMessages.getInstance().deleteMessage(name, mid, pwd);
-                                sp.setResult(record.offset(), result.isOK() ? null : result.error().name());
-                            }
-                        }
-                });
+                        });
+
                 kafkaAvailable = true;
-            
+
             } catch (Throwable t) {
                 Log.warning("Kafka not available, running without it: " + t.getMessage());
             }
@@ -84,6 +97,5 @@ public class RestMessagesServer extends AbstractRestServer {
         } catch (Throwable t) {
             t.printStackTrace();
         }
-        
     }
 }

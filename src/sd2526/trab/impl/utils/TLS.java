@@ -4,9 +4,9 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.security.KeyStore;
 
+import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
-import javax.net.ssl.KeyManagerFactory;
 
 public class TLS {
 
@@ -22,20 +22,25 @@ public class TLS {
     }
 
     public static SSLContext serverContextFromFile(String keystorePath, String password) {
-    try {
-        KeyStore ks = KeyStore.getInstance("JKS");
-        try (var is = new java.io.FileInputStream(keystorePath)) {
-            ks.load(is, password.toCharArray());
+        try {
+            // Carrega o keystore do servidor (certificado + chave privada)
+            KeyStore ks = loadStore(keystorePath, password, "JKS");
+            KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+            kmf.init(ks, password.toCharArray());
+
+            // Carrega o truststore para validar certificados de clientes/outros servidores
+            KeyStore ts = loadStore(TRUSTSTORE_PATH, TRUSTSTORE_PWD, "JKS");
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
+            tmf.init(ts);
+
+            // Inicializa o SSLContext com AMBOS: KeyManagers + TrustManagers
+            SSLContext ctx = SSLContext.getInstance("TLS");
+            ctx.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
+            return ctx;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create server SSLContext from " + keystorePath, e);
         }
-        KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
-        kmf.init(ks, password.toCharArray());
-        SSLContext ctx = SSLContext.getInstance("TLS");
-        ctx.init(kmf.getKeyManagers(), null, null);
-        return ctx;
-    } catch (Exception e) {
-        throw new RuntimeException("Failed to create server SSLContext from " + keystorePath, e);
     }
-}
 
     public static SSLContext clientContext() {
         try {
