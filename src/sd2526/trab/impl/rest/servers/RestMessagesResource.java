@@ -99,16 +99,19 @@ public class RestMessagesResource extends RestResource implements RestMessages, 
 
     @Override
     public void remotePostMessage(Message m) {
+        validateSecret(); 
         super.resultOrThrow(((AdminMessages) impl()).remotePostMessage(m));
     }
 
     @Override
     public void remoteDeleteMessage(String mid) {
+        validateSecret(); 
         super.resultOrThrow(((AdminMessages) impl()).remoteDeleteMessage(mid));
     }
 
     @Override
     public void remoteDeleteUserInbox(String name) {
+        validateSecret(); 
         super.resultOrThrow(((AdminMessages) impl()).remoteDeleteUserInbox(name));
     }
 

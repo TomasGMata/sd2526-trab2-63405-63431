@@ -132,7 +132,8 @@ class DiscoveryImpl implements Discovery {
 						if (parts.length == 2) {
 							var serviceName = parts[0];
 							var uri = URI.create(parts[1]);
-							uris.computeIfAbsent(serviceName, (k) -> ConcurrentHashMap.newKeySet()).add( uri );
+							Log.info("Discovery received announcement: serviceName=" + serviceName + ", uri=" + uri);
+							uris.computeIfAbsent(serviceName, (k) -> ConcurrentHashMap.newKeySet()).add(uri);
 						}
 
 					} catch (Exception x) {

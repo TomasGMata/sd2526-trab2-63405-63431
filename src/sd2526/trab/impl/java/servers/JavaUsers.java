@@ -34,12 +34,12 @@ public class JavaUsers extends JavaBaseService implements Users, AdminUsers {
         if (badUserInfo(user))
             return error(BAD_REQUEST);
 
-        var userAddress = "%s@%s".formatted(user.getName(), THIS_DOMAIN);
+        var userAddress = "%s@%s".formatted(user.getName(), THIS_DOMAIN());
 
         return DB.getOne(user.getName(), User.class)
                 .thenWith(other -> user.matches(other) ? ok(userAddress) : error(CONFLICT))
                 .orElse(() -> {
-                    user.setDomain(THIS_DOMAIN);
+                    user.setDomain(THIS_DOMAIN());
                     return DB.persistOne(user).mapValue(__ -> userAddress);
                 });
     }

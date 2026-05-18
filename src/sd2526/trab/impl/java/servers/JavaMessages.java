@@ -30,11 +30,10 @@ import sd2526.trab.api.java.Result.ErrorCode;
 import sd2526.trab.impl.api.java.AdminMessages;
 import sd2526.trab.impl.db.DB;
 import sd2526.trab.impl.java.clients.Clients;
-import sd2526.trab.impl.utils.IP;
 
 public class JavaMessages extends JavaBaseService implements Messages, AdminMessages {
 
-    private static final int REMOTE_COMM_DEADLINE = 90000;
+    private static final int REMOTE_COMM_DEADLINE = 15000;
     private static final long MESSAGES_CACHE_EXPIRATION = 30000;
     private static final long DIRTY_INBOX_CACHE_EXPIRATION = 10000;
 
@@ -83,7 +82,7 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
         if (badParams(name, mid, pwd))
             return error(BAD_REQUEST);
 
-        return getUser(name + "@" + THIS_DOMAIN, pwd)
+        return getUser(name + "@" + THIS_DOMAIN(), pwd)
                 .then(() -> DB.getOne(new InboxEntry(mid, name), InboxEntry.class))
                 .then(() -> DB.getOne(mid, Message.class));
     }
@@ -96,7 +95,7 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
             return error(BAD_REQUEST);
 
         var sqlExpr = "SELECT m.mid FROM InboxEntry m WHERE m.recipient = '%s'".formatted(name);
-        return getUser(name + "@" + THIS_DOMAIN, pwd)
+        return getUser(name + "@" + THIS_DOMAIN(), pwd)
                 .then(() -> DB.select(sqlExpr, String.class));
     }
 
@@ -115,7 +114,7 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
                 WHERE (upper(m.subject) LIKE '%%%s%%' OR upper(m.contents) LIKE '%%%s%%')
                 """.formatted(name, query.toUpperCase(), query.toUpperCase());
 
-        return getUser(name + "@" + THIS_DOMAIN, pwd)
+        return getUser(name + "@" + THIS_DOMAIN(), pwd)
                 .then(() -> DB.select(sqlExpr, String.class));
     }
 
@@ -126,7 +125,7 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
         if (badParams(name, mid, pwd))
             return error(BAD_REQUEST);
 
-        return getUser(name + "@" + THIS_DOMAIN, pwd)
+        return getUser(name + "@" + THIS_DOMAIN(), pwd)
                 .then(() -> DB.deleteOne(new InboxEntry(mid, name))).mapToVoid()
                 .then(() -> {
                     gcDeletedMessageCache.put(mid, mid);
@@ -140,7 +139,7 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
         if (badParams(name, mid, pwd))
             return error(BAD_REQUEST);
 
-        return getUser(name + "@" + THIS_DOMAIN, pwd)
+        return getUser(name + "@" + THIS_DOMAIN(), pwd)
                 .then(() -> {
                     var cached = messagesCache.getIfPresent(mid);
                     if (cached != null) return ok(cached);
@@ -274,16 +273,24 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
     public Result<String> doSyncPost(User sender, Message msg) {
         return getCachedMessage(msg.originId()).mapValue(Message::getId).orElse(() -> {
 
-            msg.setId("%s+%04d".formatted(THIS_DOMAIN, counter.incrementAndGet()));
+            Log.info("doSyncPost START: originId=" + msg.originId() + ", sender=" + sender + ", msg=" + msg);
+
+            msg.setId("%s+%04d".formatted(THIS_DOMAIN(), counter.incrementAndGet()));
             messagesCache.put(msg.originId(), new Message(msg));
             msg.setSender("%s <%s@%s>".formatted(sender.getDisplayName(), sender.getName(), sender.getDomain()));
             messagesCache.put(msg.getId(), new Message(msg));
 
+            Log.info("doSyncPost ASSIGNED ID: id=" + msg.getId() + ", sender=" + msg.getSender()
+                    + ", destinations=" + msg.getDestination());
+
             var localAddresses = getLocalRecipientAddresses(msg);
             var remoteAddresses = getRemoteRecipientAddresses(msg);
 
+            Log.info("doSyncPost SPLIT: localAddresses=" + localAddresses + ", remoteAddresses=" + remoteAddresses);
+
             if (!localAddresses.isEmpty()) {
                 var res = postToLocalInboxes(localAddresses, msg);
+                Log.info("doSyncPost LOCAL RESULT: " + res);
                 if (!res.isOK())
                     return error(res.error());
             }
@@ -293,28 +300,45 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
                         Collectors.groupingBy(super::getDomain,
                                 Collectors.mapping(address -> address, Collectors.toSet())));
 
+                Log.info("doSyncPost REMOTE TARGETS: " + remoteTargets);
+
                 for (var e : remoteTargets.entrySet()) {
                     var domain = e.getKey();
                     var domainRecipientAddresses = e.getValue();
 
-                    var res = super.reTry(
-                            () -> Clients.AdminMessagesClient.get(domain).remotePostMessage(msg),
-                            REMOTE_COMM_DEADLINE);
+                    Log.info("doSyncPost REMOTE SEND: domain=" + domain
+                            + ", originalDestinations=" + msg.getDestination()
+                            + ", remoteRecipientsInThisDomain=" + domainRecipientAddresses
+                            + ", mid=" + msg.getId());
 
-                    if (!res.isOK()) {
-                        if (res.error() == ErrorCode.TIMEOUT) {
-                            for (var address : domainRecipientAddresses) {
-                                var timeoutMsg = msg.cloneWithTimeout(address);
-                                var notifyRes = postToLocalInboxes(Set.of(msg.senderAddress()), timeoutMsg);
-                                if (!notifyRes.isOK())
-                                    return error(notifyRes.error());
-                            }
-                        } else {
-                            return error(INTERNAL_ERROR);
+                    var res = super.reTry(() -> {
+                        try {
+                            var client = Clients.AdminMessagesClient.get(domain);
+                            Log.info("doSyncPost REMOTE CLIENT READY for domain=" + domain);
+                            var remoteRes = client.remotePostMessage(msg);
+                            Log.info("doSyncPost REMOTE RESULT domain=" + domain + " -> " + remoteRes);
+                            return remoteRes;
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
+                            return Result.error(ErrorCode.TIMEOUT);
                         }
+                    }, REMOTE_COMM_DEADLINE);
+
+                    if (!res.isOK() && res.error() == ErrorCode.TIMEOUT) {
+                        Log.warning("doSyncPost REMOTE TIMEOUT domain=" + domain
+                                + ", recipients=" + domainRecipientAddresses);
+                        for (var address : domainRecipientAddresses) {
+                            var timeoutMsg = msg.cloneWithTimeout(address);
+                            postToLocalInboxes(Set.of(msg.senderAddress()), timeoutMsg);
+                        }
+                    } else if (!res.isOK()) {
+                        Log.warning("doSyncPost REMOTE FAILURE domain=" + domain + ", error=" + res.error());
+                        return error(res.error());
                     }
                 }
             }
+
+            Log.info("doSyncPost END: mid=" + msg.getId());
             return ok(msg.getId());
         });
     }
@@ -325,7 +349,7 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
                 .collect(Collectors.toSet());
 
         for (var domain : domains) {
-            if (domain.equals(IP.domain())) {
+            if (domain.equals(THIS_DOMAIN())) {
                 var res = deleteFromLocalInbox(msg.getId());
                 if (!res.isOK())
                     return error(res.error());
