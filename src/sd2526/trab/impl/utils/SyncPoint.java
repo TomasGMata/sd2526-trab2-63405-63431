@@ -38,4 +38,9 @@ public class SyncPoint {
         version = n;
         notifyAll();
     }
+
+    public synchronized long getVersion() {
+        return version;
+    }
+    
 }
