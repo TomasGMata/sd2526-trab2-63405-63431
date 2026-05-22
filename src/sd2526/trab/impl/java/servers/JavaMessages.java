@@ -106,13 +106,15 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
         if (badParams(name, pwd, query))
             return error(BAD_REQUEST);
 
+        var q = query.toUpperCase().replace("'", "''");
+
         var sqlExpr = """
-                SELECT m.id FROM Message m
-                RIGHT JOIN InboxEntry e
-                ON e.mid = m.id
-                AND e.recipient = '%s'
-                WHERE (upper(m.subject) LIKE '%%%s%%' OR upper(m.contents) LIKE '%%%s%%')
-                """.formatted(name, query.toUpperCase(), query.toUpperCase());
+                SELECT m.id
+                FROM InboxEntry e, Message m
+                WHERE e.mid = m.id
+                  AND e.recipient = '%s'
+                  AND (UPPER(m.subject) LIKE '%%%s%%' OR UPPER(m.contents) LIKE '%%%s%%')
+                """.formatted(name, q, q);
 
         return getUser(name + "@" + THIS_DOMAIN(), pwd)
                 .then(() -> DB.select(sqlExpr, String.class));
@@ -306,16 +308,18 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
                     var domain = e.getKey();
                     var domainRecipientAddresses = e.getValue();
 
+                    Message forwarded = new Message(msg);
+                    forwarded.setDestination(Set.copyOf(domainRecipientAddresses));
+
                     Log.info("doSyncPost REMOTE SEND: domain=" + domain
-                            + ", originalDestinations=" + msg.getDestination()
-                            + ", remoteRecipientsInThisDomain=" + domainRecipientAddresses
-                            + ", mid=" + msg.getId());
+                            + ", forwardedDestinations=" + forwarded.getDestination()
+                            + ", mid=" + forwarded.getId());
 
                     var res = super.reTry(() -> {
                         try {
                             var client = Clients.AdminMessagesClient.get(domain);
                             Log.info("doSyncPost REMOTE CLIENT READY for domain=" + domain);
-                            var remoteRes = client.remotePostMessage(msg);
+                            var remoteRes = client.remotePostMessage(forwarded);
                             Log.info("doSyncPost REMOTE RESULT domain=" + domain + " -> " + remoteRes);
                             return remoteRes;
                         } catch (Exception ex) {
