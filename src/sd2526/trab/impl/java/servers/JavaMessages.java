@@ -309,7 +309,7 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
                     var domainRecipientAddresses = e.getValue();
 
                     Message forwarded = new Message(msg);
-                    forwarded.setDestination(Set.copyOf(domainRecipientAddresses));
+                    //forwarded.setDestination(Set.copyOf(domainRecipientAddresses));
 
                     Log.info("doSyncPost REMOTE SEND: domain=" + domain
                             + ", forwardedDestinations=" + forwarded.getDestination()
