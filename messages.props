@@ -29,6 +29,7 @@ MESSAGES_REP_SERVER_MAINCLASS=sd2526.trab.impl.rest.servers.RestRepMessagesServe
 MESSAGES_REP_PORT=4567
 MESSAGES_REP_EXTRA_ARGS_FIRST=mysecret /home/sd/tls/messages0.ourorg0-server.ks password
 MESSAGES_REP_EXTRA_ARGS_OTHER=mysecret /home/sd/tls/messages1.ourorg0-server.ks password
+MESSAGES_REP_EXTRA_ARGS_OTHER2=mysecret /home/sd/tls/messages2.ourorg0-server.ks password
 
 USERS_KEYSTORES=users.ourorg0,/home/sd/tls/users.ourorg0-server.ks,password users.ourorg1,/home/sd/tls/users.ourorg1-server.ks,password users.ourorg2,/home/sd/tls/users.ourorg2-server.ks,password
 SERVERS_KEYSTORES=messages0.ourorg0,/home/sd/tls/messages0.ourorg0-server.ks,password messages1.ourorg0,/home/sd/tls/messages1.ourorg0-server.ks,password messages2.ourorg0,/home/sd/tls/messages2.ourorg0-server.ks,password messages0.ourorg1,/home/sd/tls/messages0.ourorg1-server.ks,password messages1.ourorg1,/home/sd/tls/messages1.ourorg1-server.ks,password messages2.ourorg1,/home/sd/tls/messages2.ourorg1-server.ks,password messages.ourorg2,/home/sd/tls/messages.ourorg2-server.ks,password

@@ -16,10 +16,10 @@ import sd2526.trab.api.rest.RestMessages;
 import sd2526.trab.impl.api.java.AdminMessages;
 import sd2526.trab.impl.api.rest.RestAdminMessages;
 import sd2526.trab.impl.java.servers.JavaMessages;
+import sd2526.trab.impl.utils.ServerConfig;
 import sd2526.trab.impl.utils.SyncPoint;
-import sd2526.trab.impl.utils.kafka.KafkaPublisher;
 import sd2526.trab.impl.utils.VersionHolder;
-import sd2526.trab.impl.utils.VersionResponseFilter;
+import sd2526.trab.impl.utils.kafka.KafkaPublisher;
 
 @Singleton
 public class RestRepMessagesResource extends RestResource
@@ -42,19 +42,27 @@ public class RestRepMessagesResource extends RestResource
     private Messages impl;
 
     synchronized Messages impl() {
-        if (impl == null) impl = JavaMessages.getInstance();
+        if (impl == null)
+            impl = JavaMessages.getInstance();
         return impl;
     }
 
-    // Lê versão mínima do header do cliente
+    private void validateSecret() {
+        String secret = httpHeaders.getHeaderString(ServerConfig.SECRET_HEADER);
+        if (!ServerConfig.isValidSecret(secret))
+            throw new WebApplicationException(Response.Status.FORBIDDEN);
+    }
+
     private long clientVersion() {
         String h = httpHeaders.getHeaderString(VERSION_HEADER);
         if (h == null) return -1;
-        try { return Long.parseLong(h.trim()); }
-        catch (NumberFormatException e) { return -1; }
+        try {
+            return Long.parseLong(h.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
-    // Publica no Kafka e retorna offset
     private long publish(JsonObject obj) {
         return getPublisher().publish(RestRepMessagesServer.KAFKA_TOPIC, obj.toString());
     }
@@ -86,6 +94,7 @@ public class RestRepMessagesResource extends RestResource
     public List<String> getMessages(String name, String pwd, String query) {
         SyncPoint.getSyncPoint().waitForVersion(clientVersion());
         VersionHolder.set(SyncPoint.getSyncPoint().getVersion());
+
         if (query != null && !query.isEmpty())
             return super.resultOrThrow(impl().searchInbox(name, pwd, query));
         else
@@ -124,21 +133,27 @@ public class RestRepMessagesResource extends RestResource
 
         VersionHolder.set(offset);
         if (!"OK".equals(result))
-            throw new WebApplicationException(Response.Status.FORBIDDEN);
+            throw new WebApplicationException(
+                result != null && result.equals("NOT_FOUND")
+                    ? Response.Status.NOT_FOUND
+                    : Response.Status.FORBIDDEN);
     }
 
     @Override
     public void remotePostMessage(Message m) {
+        validateSecret();
         super.resultOrThrow(((AdminMessages) impl()).remotePostMessage(m));
     }
 
     @Override
     public void remoteDeleteMessage(String mid) {
+        validateSecret();
         super.resultOrThrow(((AdminMessages) impl()).remoteDeleteMessage(mid));
     }
 
     @Override
     public void remoteDeleteUserInbox(String name) {
+        validateSecret();
         super.resultOrThrow(((AdminMessages) impl()).remoteDeleteUserInbox(name));
     }
 }
