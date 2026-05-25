@@ -257,7 +257,7 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
         return deleteFromLocalInbox(mid);
     }
 
-    protected Result<Message> getCachedMessage(String mid) {
+    public Result<Message> getCachedMessage(String mid) {
         var msg = messagesCache.getIfPresent(mid);
         return msg != null ? ok(msg) : error(FORBIDDEN);
     }
@@ -347,6 +347,17 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
         });
     }
 
+    public Result<String> replicatePost(Message msg) {
+        // msg já tem ID atribuído pelo Consumer A — não gerar novo
+        messagesCache.put(msg.getId(), new Message(msg));
+        var localAddresses = getLocalRecipientAddresses(msg);
+        if (localAddresses.isEmpty())
+            return ok(msg.getId());
+        var res = postToLocalInboxes(localAddresses, msg);
+        if (!res.isOK()) return error(res.error());
+        return ok(msg.getId());
+    }
+
     public Result<Void> doSyncDelete(Message msg) {
         var domains = msg.getDestination().stream()
                 .map(this::getDomain)
@@ -367,6 +378,17 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
             }
         }
         return ok();
+    }
+
+    public Result<Void> replicateRemove(String mid, String name) {
+        return DB.deleteOne(new InboxEntry(mid, name)).mapToVoid()
+            .then(() -> {
+                gcDeletedMessageCache.put(mid, mid);
+            });
+    }
+
+    public Result<Void> replicateDelete(String mid, String name) {
+        return deleteFromLocalInbox(mid);
     }
 
     public void doAsyncRemotePost(String remoteDomain, Message msg) {

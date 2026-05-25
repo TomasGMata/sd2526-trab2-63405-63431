@@ -32,10 +32,10 @@ public class SyncPoint {
 
     // Chamado pelo Kafka consumer — regista o resultado da operação com offset n
     public synchronized void setResult(long n, String res) {
-        if (n <= version && version != 0)
-            throw new RuntimeException("Version " + n + " is already set");
-        result.put(n, res != null ? res : NULL_RESULT);
-        version = n;
+        /*if (n <= version && version != 0)
+            throw new RuntimeException("Version " + n + " is already set");*/
+        result.putIfAbsent(n, res != null ? res : NULL_RESULT);
+        if (n > version) version = n;
         notifyAll();
     }
 

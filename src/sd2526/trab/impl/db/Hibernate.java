@@ -10,6 +10,7 @@ import java.io.File;
 import java.util.Collection;
 import java.util.List;
 import java.util.function.Function;
+import java.net.InetAddress;
 
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
@@ -29,13 +30,13 @@ public class Hibernate {
 
     private Hibernate() {
         try {
-            // Caminho único por domínio — evita conflito de ficheiro bloqueado
-            // entre ourorg0 e ourorg1 na mesma máquina
-            String dbPath = "/tmp/sd_" + IP.domain();
+            String host = InetAddress.getLocalHost().getHostName();
+            String dbPath = "/tmp/sd_" + host;
 
             sessionFactory = new Configuration()
                     .configure(new File(HIBERNATE_CFG_FILE))
                     .setProperty("hibernate.connection.url", "jdbc:hsqldb:file:" + dbPath)
+                    .setProperty("hibernate.hbm2ddl.auto", "create")
                     .buildSessionFactory();
 
         } catch (Exception e) {

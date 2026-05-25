@@ -18,6 +18,7 @@ import sd2526.trab.impl.utils.ServerConfig;
 import sd2526.trab.impl.utils.SyncPoint;
 import sd2526.trab.impl.utils.TLS;
 import sd2526.trab.impl.utils.VersionResponseFilter;
+import sd2526.trab.impl.utils.kafka.KafkaPublisher;
 import sd2526.trab.impl.utils.kafka.KafkaSubscriber;
 import sd2526.trab.impl.utils.kafka.KafkaUtils;
 
@@ -28,8 +29,19 @@ public class RestRepMessagesServer extends AbstractRestServer {
     public static final String KAFKA_TOPIC = "rep-messages-" +
         System.getenv().getOrDefault("DOMAIN", "default");
 
+    public static final String RESULT_TOPIC = "rep-results-" +
+        System.getenv().getOrDefault("DOMAIN", "default");
+
     private static Logger Log = Logger.getLogger(RestRepMessagesServer.class.getName());
     private static final Gson gson = new Gson();
+
+    private static KafkaPublisher resultPublisher;
+
+    private static synchronized KafkaPublisher getResultPublisher() {
+        if (resultPublisher == null)
+            resultPublisher = KafkaPublisher.createPublisher("kafka:9092");
+        return resultPublisher;
+    }
 
     RestRepMessagesServer() {
         super(Log, Messages.SERVICE_NAME, PORT);
@@ -60,37 +72,97 @@ public class RestRepMessagesServer extends AbstractRestServer {
             }
 
             KafkaUtils.createTopic(KAFKA_TOPIC);
+            KafkaUtils.createTopic(RESULT_TOPIC);
 
-            KafkaSubscriber.createSubscriber("kafka:9092", List.of(KAFKA_TOPIC))
+            String sharedGroup = "rep-group-" +
+                System.getenv().getOrDefault("DOMAIN", "default");
+
+            // Consumer A — group partilhado: só uma réplica processa cada mensagem,
+            // executa a operação e publica o resultado no RESULT_TOPIC como JSON
+            KafkaSubscriber.createSubscriber("kafka:9092", List.of(KAFKA_TOPIC), sharedGroup)
                 .start(record -> {
                     JsonObject obj = JsonParser.parseString(record.value()).getAsJsonObject();
                     String op = obj.get("op").getAsString();
                     String res = null;
+                    Message processedMsg = null;
 
                     switch (op) {
                         case "postMessage" -> {
                             String pwd = obj.get("pwd").getAsString();
                             Message msg = gson.fromJson(obj.get("msg"), Message.class);
                             var result = JavaMessages.getInstance().postMessage(pwd, msg);
-                            res = result.isOK() ? result.value() : null;
+                            if (result.isOK()) {
+                                res = result.value();
+                                processedMsg = JavaMessages.getInstance().getCachedMessage(res).value();
+                            }
                         }
                         case "deleteMessage" -> {
                             String name = obj.get("name").getAsString();
                             String mid = obj.get("mid").getAsString();
                             String pwd = obj.get("pwd").getAsString();
-                            var result = JavaMessages.getInstance().deleteMessage(name, mid, pwd);
+                            var result = JavaMessages.getInstance().replicateDelete(mid, name);
                             res = result.isOK() ? "OK" : result.error().name();
                         }
                         case "removeInboxMessage" -> {
                             String name = obj.get("name").getAsString();
                             String mid = obj.get("mid").getAsString();
                             String pwd = obj.get("pwd").getAsString();
-                            var result = JavaMessages.getInstance().removeInboxMessage(name, mid, pwd);
+                            var result = JavaMessages.getInstance().replicateRemove(mid, name);
                             res = result.isOK() ? "OK" : result.error().name();
                         }
                     }
 
-                    SyncPoint.getSyncPoint().setResult(record.offset(), res);
+                    // ALTERAÇÃO: payload agora é JSON com op, dados e resultado
+                    // para que o Consumer B saiba que operação replicar
+                    JsonObject resultObj = new JsonObject();
+                    resultObj.addProperty("offset", record.offset());
+                    resultObj.addProperty("op", op);
+                    resultObj.addProperty("res", res != null ? res : "NULL");
+                    if (processedMsg != null)
+                        resultObj.add("msg", gson.toJsonTree(processedMsg));
+                    if (obj.has("mid"))
+                        resultObj.addProperty("mid", obj.get("mid").getAsString());
+                    if (obj.has("name"))
+                        resultObj.addProperty("name", obj.get("name").getAsString());
+
+                    getResultPublisher().publish(RESULT_TOPIC, resultObj.toString());
+                });
+
+            // Consumer B — group único: todas as réplicas recebem todos os resultados,
+            // replicam o estado local para TODAS as operações e actualizam o SyncPoint
+            KafkaSubscriber.createSubscriber("kafka:9092", List.of(RESULT_TOPIC))
+                .start(record -> {
+                    JsonObject obj = JsonParser.parseString(record.value()).getAsJsonObject();
+                    long offset = obj.get("offset").getAsLong();
+                    String op = obj.get("op").getAsString();
+                    String res = obj.get("res").getAsString();
+
+                    // ALTERAÇÃO: replica todas as operações, não só postMessage
+                    switch (op) {
+                        case "postMessage" -> {
+                            if (obj.has("msg")) {
+                                Message msg = gson.fromJson(obj.get("msg"), Message.class);
+                                JavaMessages.getInstance().replicatePost(msg);
+                            }
+                        }
+                        case "deleteMessage" -> {
+                            if (obj.has("mid") && obj.has("name")) {
+                                String mid = obj.get("mid").getAsString();
+                                String name = obj.get("name").getAsString();
+                                JavaMessages.getInstance().replicateDelete(mid, name);
+                            }
+                        }
+                        case "removeInboxMessage" -> {
+                            if (obj.has("mid") && obj.has("name")) {
+                                String mid = obj.get("mid").getAsString();
+                                String name = obj.get("name").getAsString();
+                                JavaMessages.getInstance().replicateRemove(mid, name);
+                            }
+                        }
+                    }
+
+                    String result = res.equals("NULL") ? null : res;
+                    SyncPoint.getSyncPoint().setResult(offset, result);
                 });
 
             server.start();

@@ -13,10 +13,14 @@ import org.apache.kafka.common.serialization.StringDeserializer; // CORRETO
 public class KafkaSubscriber {
 
     public static KafkaSubscriber createSubscriber(String addr, List<String> topics) {
+        return createSubscriber(addr, topics, UUID.randomUUID().toString());
+    }
+
+    public static KafkaSubscriber createSubscriber(String addr, List<String> topics, String groupId) {
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, addr);
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, UUID.randomUUID().toString());
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         return new KafkaSubscriber(new KafkaConsumer<>(props), topics);
