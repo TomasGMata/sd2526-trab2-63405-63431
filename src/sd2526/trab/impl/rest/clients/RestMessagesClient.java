@@ -20,7 +20,6 @@ public class RestMessagesClient extends RestClient implements Messages {
         this.serverToServer = false;
     }
 
-    // ← novo construtor para chamadas server-to-server
     public RestMessagesClient(String serverURI, boolean serverToServer) {
         super(serverURI, RestMessages.PATH);
         this.serverToServer = serverToServer;

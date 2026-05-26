@@ -348,7 +348,6 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
     }
 
     public Result<String> replicatePost(Message msg) {
-        // msg já tem ID atribuído pelo Consumer A — não gerar novo
         messagesCache.put(msg.getId(), new Message(msg));
         var localAddresses = getLocalRecipientAddresses(msg);
         if (localAddresses.isEmpty())
@@ -381,10 +380,11 @@ public class JavaMessages extends JavaBaseService implements Messages, AdminMess
     }
 
     public Result<Void> replicateRemove(String mid, String name) {
-        return DB.deleteOne(new InboxEntry(mid, name)).mapToVoid()
-            .then(() -> {
-                gcDeletedMessageCache.put(mid, mid);
-            });
+        var result = DB.deleteOne(new InboxEntry(mid, name));
+        if (result.isOK()) {
+            gcDeletedMessageCache.put(mid, mid);
+        }
+        return ok();
     }
 
     public Result<Void> replicateDelete(String mid, String name) {

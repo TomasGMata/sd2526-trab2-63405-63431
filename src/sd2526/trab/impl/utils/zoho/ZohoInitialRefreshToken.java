@@ -34,7 +34,6 @@ public class ZohoInitialRefreshToken {
         System.out.println("Status: " + response.statusCode());
         System.out.println("Response: " + response.body());
 
-        // Extract and print the refresh token clearly
         String responseBody = response.body();
         if (responseBody.contains("refresh_token")) {
             int start = responseBody.indexOf("\"refresh_token\"") + "\"refresh_token\"".length();

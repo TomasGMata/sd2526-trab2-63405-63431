@@ -37,7 +37,6 @@ public abstract class AbstractRestServer extends AbstractServer {
         ResourceConfig config = new ResourceConfig();
         registerResources(config);
 
-        // Bind em 0.0.0.0 mas anunciar com o hostname real
         URI bindURI = URI.create(
             String.format(SERVER_BASE_URI, INETADDR_ANY,
                 URI.create(serverURI).getPort(), REST_CTX));

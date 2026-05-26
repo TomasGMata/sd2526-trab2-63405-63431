@@ -59,7 +59,6 @@ class DiscoveryImpl implements Discovery {
 	static final int DISCOVERY_ANNOUNCE_PERIOD = 1000;
 	static final InetSocketAddress DISCOVERY_ADDR = new InetSocketAddress("226.226.226.226", 2266);
 
-	// Used separate the two fields that make up a service announcement.
 	private static final String DELIMITER = "\t";
 
 	private static final int MAX_DATAGRAM_SIZE = 65536;
@@ -86,7 +85,6 @@ class DiscoveryImpl implements Discovery {
 		var pktBytes = String.format("%s%s%s", serviceName, DELIMITER, serviceURI).getBytes();
 		var pkt = new DatagramPacket(pktBytes, pktBytes.length, DISCOVERY_ADDR);
 
-		// start thread to send periodic announcements
 		new Thread(() -> {
 			try (var ds = new DatagramSocket()) {
 				while (true) {

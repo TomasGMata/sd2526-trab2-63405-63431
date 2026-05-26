@@ -31,7 +31,6 @@ public class Zoho {
     final OAuth20Service service;
     final ZohoTokenManager tokenManager;
 
-    // accountId em cache para evitar chamadas repetidas
     private String cachedAccountId;
     private String cachedFromAddress;
 
@@ -47,9 +46,6 @@ public class Zoho {
         return instance;
     }
 
-    // -------------------------------------------------------------------------
-    // getAccount — igual ao exemplo dos professores
-    // -------------------------------------------------------------------------
     public ZohoAccount getAccount() throws Exception {
         var accessToken = new OAuth2AccessToken(tokenManager.getValidAccessToken());
         OAuthRequest request = new OAuthRequest(Verb.GET, MAIL_API_BASE + ACCOUNTS);
@@ -67,9 +63,6 @@ public class Zoho {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers internos para obter accountId e fromAddress em cache
-    // -------------------------------------------------------------------------
     private synchronized String getAccountId() throws Exception {
         if (cachedAccountId == null) {
             var acc = getAccount();
@@ -85,9 +78,6 @@ public class Zoho {
         return cachedFromAddress;
     }
 
-    // -------------------------------------------------------------------------
-    // sendMessage — envia email com subject = mid e body = JSON da Message
-    // -------------------------------------------------------------------------
     public boolean sendMessage(String subject, String bodyJson) throws Exception {
         var accessToken = new OAuth2AccessToken(tokenManager.getValidAccessToken());
         String accountId   = getAccountId();
@@ -97,12 +87,11 @@ public class Zoho {
             MAIL_API_BASE + "/accounts/" + accountId + "/messages");
         request.addHeader("Content-Type", "application/json");
 
-        // Payload conforme API Zoho Mail
         String payload = gson.toJson(new java.util.HashMap<String, Object>() {{
             put("fromAddress", fromAddress);
-            put("toAddress",   fromAddress);   // envia para si próprio
-            put("subject",     subject);       // = mid
-            put("content",     bodyJson);      // = JSON da Message
+            put("toAddress",   fromAddress);
+            put("subject",     subject);
+            put("content",     bodyJson);
             put("mailFormat",  "plaintext");
         }});
         request.setPayload(payload);
@@ -114,10 +103,7 @@ public class Zoho {
             return response.isSuccessful();
         }
     }
-
-    // -------------------------------------------------------------------------
-    // listMessages — devolve todos os emails da inbox
-    // -------------------------------------------------------------------------
+    
     public List<ZohoMessage> listMessages() throws Exception {
         var accessToken = new OAuth2AccessToken(tokenManager.getValidAccessToken());
         String accountId = getAccountId();
@@ -137,9 +123,6 @@ public class Zoho {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // getMessageContent — obtém o body (JSON da Message) de um email específico
-    // -------------------------------------------------------------------------
     public String getMessageContent(String folderId, String messageId) throws Exception {
         var accessToken = new OAuth2AccessToken(tokenManager.getValidAccessToken());
         String accountId = getAccountId();
@@ -161,9 +144,6 @@ public class Zoho {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // deleteMessage — apaga um email pelo folderId + messageId
-    // -------------------------------------------------------------------------
     public boolean deleteMessage(String folderId, String messageId) throws Exception {
         var accessToken = new OAuth2AccessToken(tokenManager.getValidAccessToken());
         String accountId = getAccountId();

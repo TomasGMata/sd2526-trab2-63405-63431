@@ -28,7 +28,6 @@ public class RestZohoMessagesServer extends AbstractRestServer {
 
     public static void main(String[] args) {
         try {
-            // args: [0]=cleanState(true/false), [1]=secret, [2]=keystore, [3]=password
             boolean cleanState = args.length > 0 && Boolean.parseBoolean(args[0]);
 
             if (args.length > 1)

@@ -23,17 +23,14 @@ public class TLS {
 
     public static SSLContext serverContextFromFile(String keystorePath, String password) {
         try {
-            // Carrega o keystore do servidor (certificado + chave privada)
             KeyStore ks = loadStore(keystorePath, password, "JKS");
             KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
             kmf.init(ks, password.toCharArray());
 
-            // Carrega o truststore para validar certificados de clientes/outros servidores
             KeyStore ts = loadStore(TRUSTSTORE_PATH, TRUSTSTORE_PWD, "JKS");
             TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
             tmf.init(ts);
 
-            // Inicializa o SSLContext com AMBOS: KeyManagers + TrustManagers
             SSLContext ctx = SSLContext.getInstance("TLS");
             ctx.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
             return ctx;

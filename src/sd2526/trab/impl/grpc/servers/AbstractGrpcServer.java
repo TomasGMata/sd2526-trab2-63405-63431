@@ -75,7 +75,7 @@ public abstract class AbstractGrpcServer extends AbstractServer {
         }));
 
         try {
-            server.awaitTermination(); // ← bloqueia o processo
+            server.awaitTermination();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             Log.warning("gRPC server interrupted: " + e.getMessage());

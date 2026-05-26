@@ -30,7 +30,6 @@ public class RestUsersServer extends AbstractRestServer {
         try {
             if (args.length > 0) ServerConfig.setSecret(args[0]);
 
-            // inicializa Hibernate antes de aceitar requests
             Hibernate.getInstance();
 
             var server = new RestUsersServer();

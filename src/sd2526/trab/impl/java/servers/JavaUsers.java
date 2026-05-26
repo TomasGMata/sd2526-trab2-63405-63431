@@ -97,7 +97,6 @@ public class JavaUsers extends JavaBaseService implements Users, AdminUsers {
         return (user.getName() == null || user.getName().isEmpty()
                 || user.getPwd() == null || user.getPwd().isEmpty()
                 || user.getDisplayName() == null || user.getDisplayName().isEmpty());
-        // domínio removido da validação — é sobrescrito com THIS_DOMAIN no postUser
     }
 
     private boolean badUpdateUserInfo(String name, String pwd, User info) {

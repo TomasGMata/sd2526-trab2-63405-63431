@@ -34,7 +34,6 @@ public class ZohoApi20 extends DefaultApi20 {
 
     @Override
     public ClientAuthentication getClientAuthentication() {
-        // Zoho expects client_id/secret in the request body, not Basic auth header
         return RequestBodyAuthenticationScheme.instance();
     }
 }

@@ -77,8 +77,6 @@ public class RestRepMessagesServer extends AbstractRestServer {
             String sharedGroup = "rep-group-" +
                 System.getenv().getOrDefault("DOMAIN", "default");
 
-            // Consumer A — group partilhado: só uma réplica processa cada mensagem,
-            // executa a operação e publica o resultado no RESULT_TOPIC como JSON
             KafkaSubscriber.createSubscriber("kafka:9092", List.of(KAFKA_TOPIC), sharedGroup)
                 .start(record -> {
                     JsonObject obj = JsonParser.parseString(record.value()).getAsJsonObject();
@@ -112,8 +110,6 @@ public class RestRepMessagesServer extends AbstractRestServer {
                         }
                     }
 
-                    // ALTERAÇÃO: payload agora é JSON com op, dados e resultado
-                    // para que o Consumer B saiba que operação replicar
                     JsonObject resultObj = new JsonObject();
                     resultObj.addProperty("offset", record.offset());
                     resultObj.addProperty("op", op);
@@ -128,8 +124,6 @@ public class RestRepMessagesServer extends AbstractRestServer {
                     getResultPublisher().publish(RESULT_TOPIC, resultObj.toString());
                 });
 
-            // Consumer B — group único: todas as réplicas recebem todos os resultados,
-            // replicam o estado local para TODAS as operações e actualizam o SyncPoint
             KafkaSubscriber.createSubscriber("kafka:9092", List.of(RESULT_TOPIC))
                 .start(record -> {
                     JsonObject obj = JsonParser.parseString(record.value()).getAsJsonObject();
@@ -137,7 +131,6 @@ public class RestRepMessagesServer extends AbstractRestServer {
                     String op = obj.get("op").getAsString();
                     String res = obj.get("res").getAsString();
 
-                    // ALTERAÇÃO: replica todas as operações, não só postMessage
                     switch (op) {
                         case "postMessage" -> {
                             if (obj.has("msg")) {

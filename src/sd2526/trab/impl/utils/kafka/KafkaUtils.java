@@ -15,7 +15,7 @@ public class KafkaUtils {
         try (AdminClient admin = AdminClient.create(props)) {
             admin.createTopics(List.of(new NewTopic(topic, 1, (short) 1)));
         } catch (Exception e) {
-            // topic já existe, ignorar
+            
         }
     }
 }
